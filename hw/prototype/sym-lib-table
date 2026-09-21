@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "Project Library") (type "KiCad") (uri "${KIPRJMOD}/../libraries/symbols/ECE445L.kicad_sym") (options "") (descr "Contains specific parts, ECE 445L parts"))
+)
