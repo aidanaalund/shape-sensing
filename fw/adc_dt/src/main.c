@@ -72,6 +72,8 @@ int main(void)
 			//        adc_channels[i].dev->name,
 			//        adc_channels[i].channel_id);
 
+			// 
+
 			(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
 
 			err = adc_read_dt(&adc_channels[i], &sequence);
