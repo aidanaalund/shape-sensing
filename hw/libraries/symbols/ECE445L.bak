@@ -12132,7 +12132,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "http://www.ti.com/lit/ds/symlink/tlc2274.pdf"
+		(property "Datasheet" "http://www.ti.com/lit/ds/symlink/tlc274.pdf"
 			(at 1.27 5.08 0)
 			(show_name no)
 			(do_not_autoplace no)
