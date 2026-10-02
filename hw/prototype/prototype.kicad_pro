@@ -663,7 +663,7 @@
         "uuid": "989d878b-7acd-4ae5-89be-7c82f1caa981"
       }
     ],
-    "used_designators": "D1-8,C1-6,#PWR1-18,R1-18,U1-4",
+    "used_designators": "J1,D1-8,C1-6,#PWR1-18,R1-18,U1-4",
     "variants": [
       {
         "description": "Uses 3 LEDs/photodiodes, quad op-amp",
