@@ -1,7 +1,5 @@
 /*
  * Photodiode transimpedance amplifier readout (3x Vo + shared Vref)
- *
- * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <inttypes.h>
@@ -14,11 +12,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
-
-#if !DT_NODE_EXISTS(DT_PATH(zephyr_user)) || \
-	!DT_NODE_HAS_PROP(DT_PATH(zephyr_user), io_channels)
-#error "No suitable devicetree overlay specified"
-#endif
 
 #define DT_SPEC_AND_COMMA(node_id, prop, idx) \
 	ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
@@ -84,8 +77,7 @@ int main(void)
 {
 	int err;
 	struct adc_sequence sequence = {
-		.buffer = buf,
-		/* buffer size in bytes, not number of samples */
+		.buffer = buf, /* in bytes */
 		.buffer_size = sizeof(buf),
 		.calibrate = true, /* calibrate on the first read only */
 	};
@@ -124,7 +116,6 @@ int main(void)
 
 	while (1) {
 		(void)sample_once(&sequence, k_uptime_get());
-
 		next_ms += SAMPLE_PERIOD_MS;
 		k_sleep(K_TIMEOUT_ABS_MS(next_ms));
 	}

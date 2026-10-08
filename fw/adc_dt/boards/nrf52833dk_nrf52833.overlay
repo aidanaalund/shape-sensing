@@ -10,7 +10,6 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	/* Photodiode amplifier outputs: 0.6 V / (1/6) = 3.6 V full scale */
 	channel@0 {
 		reg = <0>;
 		zephyr,gain = "ADC_GAIN_1_6";
