@@ -2,20 +2,11 @@
 
 / {
 	zephyr,user {
-		io-channels = <&adc 0>, <&adc 1>, <&adc 2>, <&adc 3>;
+		io-channels = <&adc 0>, <&adc 1>/*, <&adc 2>, <&adc 3>*/;
 	};
 
 	aliases {
-		stepper-driver = &a4988;
 		stepper-ctrl = &step_dir_motion_control;
-	};
-
-	a4988: stepper-driver {
-		compatible = "allegro,a4988";
-		// en-gpios = ;
-		// m0-gpios = ;
-		// m1-gpios = ;
-		micro-step-res = <1>; // Motor is full step by default. Need GPIOs to change
 	};
 
 	step_dir_motion_control: motion-controller {
@@ -23,9 +14,13 @@
 		step-gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>; /* P1.04, D3 */
 		dir-gpios = <&gpio1 3 GPIO_ACTIVE_HIGH>; /* P1.03, D2 */
 		invert-direction;
-		stepper-driver = <&a4988>;
 	};
 };
+
+&button0 {zephyr,code = <INPUT_KEY_0>;};
+&button1 {zephyr,code = <INPUT_KEY_1>;};
+&button2 {zephyr,code = <INPUT_KEY_2>;};
+&button3 { zephyr,code = <INPUT_KEY_3>; };
 
 &adc {
 	#address-cells = <1>;
@@ -62,8 +57,8 @@
 	// };
 
 	/* Shared Vref (~0.1 V): gain 1 gives 0.6 V full scale for better resolution */
-	channel@3 {
-		reg = <3>;
+	channel@1 {
+		reg = <1>;
 		zephyr,gain = "ADC_GAIN_1";
 		zephyr,reference = "ADC_REF_INTERNAL";
 		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
