@@ -20,7 +20,7 @@
 &button0 {zephyr,code = <INPUT_KEY_0>;};
 &button1 {zephyr,code = <INPUT_KEY_1>;};
 &button2 {zephyr,code = <INPUT_KEY_2>;};
-&button3 { zephyr,code = <INPUT_KEY_3>; };
+&button3 {zephyr,code = <INPUT_KEY_3>; };
 
 &adc {
 	#address-cells = <1>;
@@ -64,6 +64,6 @@
 		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
 		zephyr,input-positive = <NRF_SAADC_AIN5>; /* P0.29, Vref */
 		zephyr,resolution = <12>;
-		zephyr,oversampling = <8>;
+		// zephyr,oversampling = <8>;
 	};
 };

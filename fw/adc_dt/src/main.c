@@ -27,14 +27,17 @@
 #include <zephyr/sys/util.h>
 
 /* ------------------------------------------------------------------ */
-/* Tunables                                                           */
+/* Constants                                                          */
 /* ------------------------------------------------------------------ */
+
+#define DIV_NUM 25  /* Output voltage divider (10k + 15k) */
+#define DIV_DEN 15  /* Output voltage divider top (15k) */
+#define R1_OHMS 150000LL /* Feedback resistor */
 
 #define SAMPLE_PERIOD_MS 1000 /* "y" Hz = 1000 / this */
 #define TIGHTEN_DEG 90 /* "x": target for button 2 */
 #define STEPS_PER_REV 200 /* full steps per rev (1.8 deg) */
 #define STEP_INTERVAL_NS 2000000ULL /* time between micro-steps */
-#define R1_OHMS 150000LL /* TIA feedback resistor */
 
 /* ------------------------------------------------------------------ */
 /* Stepper                                                            */
@@ -180,9 +183,8 @@ static int measure(struct adc_sequence *seq, struct measurement *m)
 		}
 	}
 
-	/* mV / ohm -> pA:  (mV * 1e-3 / R) * 1e12 = mV * 1e9 / R */
-	m->i_pa = ((int64_t)(m->mv[VO_IDX] - m->mv[VREF_IDX]) * 1000000000LL) /
-		  R1_OHMS;
+	int32_t vo_amp_mv = m->mv[VO_IDX] * DIV_NUM / DIV_DEN;
+	m->i_pa = ((int64_t)(vo_amp_mv - m->mv[VREF_IDX]) * 1000000000LL) / R1_OHMS;
 
 	return 0;
 }
