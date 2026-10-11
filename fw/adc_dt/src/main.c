@@ -37,7 +37,7 @@
 #define SAMPLE_PERIOD_MS 1000 /* "y" Hz = 1000 / this */
 #define TIGHTEN_DEG 90 /* "x": target for button 2 */
 #define STEPS_PER_REV 200 /* full steps per rev (1.8 deg) */
-#define STEP_INTERVAL_NS 2000000ULL /* time between micro-steps */
+#define STEP_INTERVAL_NS 500000000ULL /* time between micro-steps */
 
 /* ------------------------------------------------------------------ */
 /* Stepper                                                            */

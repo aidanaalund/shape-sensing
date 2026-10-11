@@ -1,0 +1,12 @@
+.venv/
+external
+**/build*/
+.vscode/compile_commands.json
+.vscode/extensions.json
+
+# Extra Zephyr files
+.west/
+zephyr/
+modules/
+bootloader/
+tools/

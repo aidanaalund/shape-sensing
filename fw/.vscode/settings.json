@@ -1,0 +1,11 @@
+{
+    "terminal.integrated.defaultProfile.linux": "Zephyr IDE Terminal",
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/.vscode",
+        "--background-index",
+        "--completion-style=detailed",
+        "--header-insertion=never",
+        "--query-driver=/home/aidan/.zephyr_ide/toolchains/**/*"
+    ],
+    "cmake.configureOnOpen": false
+}

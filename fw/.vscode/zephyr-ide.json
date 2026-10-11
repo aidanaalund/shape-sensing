@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "adc_dt": {
+      "relPath": "apps/adc_dt",
+      "name": "adc_dt",
+      "buildConfigs": {},
+      "twisterConfigs": {},
+      "confFiles": {
+        "config": [],
+        "overlay": []
+      }
+    }
+  }
+}
