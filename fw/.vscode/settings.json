@@ -7,5 +7,6 @@
         "--header-insertion=never",
         "--query-driver=/home/aidan/.zephyr_ide/toolchains/**/*"
     ],
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "cmake.sourceDirectory": "/home/aidan/Projects/utexas/tactile-sensing/shape-sensing/fw/adc_dt"
 }
