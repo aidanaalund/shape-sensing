@@ -3,7 +3,19 @@
     "adc_dt": {
       "relPath": "apps/adc_dt",
       "name": "adc_dt",
-      "buildConfigs": {},
+      "buildConfigs": {
+        "build/xiao_esp32s3/esp32s3/appcpu": {
+          "relBoardSubDir": "seeed/xiao_esp32s3",
+          "board": "xiao_esp32s3/esp32s3/appcpu",
+          "name": "build/xiao_esp32s3/esp32s3/appcpu",
+          "westBuildArgs": [],
+          "westBuildCMakeArgs": [],
+          "confFiles": {
+            "config": [],
+            "overlay": []
+          }
+        }
+      },
       "twisterConfigs": {},
       "confFiles": {
         "config": [],
