@@ -469,6 +469,7 @@
       "pin_to_pin": "warning",
       "power_pin_not_driven": "error",
       "same_local_global_label": "warning",
+      "same_local_global_power": "warning",
       "similar_label_and_power": "warning",
       "similar_labels": "warning",
       "similar_power": "warning",
@@ -518,8 +519,8 @@
     "meta": {
       "version": 5
     },
-    "net_colors": null,
-    "netclass_assignments": null,
+    "net_colors": {},
+    "netclass_assignments": {},
     "netclass_patterns": []
   },
   "pcbnew": {
@@ -681,7 +682,7 @@
         "uuid": "989d878b-7acd-4ae5-89be-7c82f1caa981"
       }
     ],
-    "used_designators": "J1,A1,D1-8,C1-7,#PWR1-22,R1-18,U1-4",
+    "used_designators": "#PWR1-22,A1,C1-7,D1-8,J1,R1-18,U1-4",
     "variants": [
       {
         "description": "Uses 3 LEDs/photodiodes, quad op-amp",
