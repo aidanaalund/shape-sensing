@@ -1,0 +1,71 @@
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/*
+ * XIAO ESP32-S3 pin usage (see seeed_xiao_connector.dtsi for D-number to GPIO):
+ *
+ *   D0  A4988 STEP          D8  SCLK  -> ADS1256 SCLK
+ *   D1  A4988 DIR           D9  MISO  <- ADS1256 DOUT
+ *   D2  SW3 (debug print)   D10 MOSI  -> ADS1256 DIN
+ *   D3  SW4 (stream on/off) D4  CS    -> ADS1256 CS
+ *   D6  SW1 (return to 0)   D5  DRDY  <- ADS1256 DRDY
+ *   D7  SW2 (tighten)
+ *
+ * ADS1256 inputs: AIN0 = Vo (photodiode amp output), AIN1 = Vref, AINCOM = GND.
+ * Tie ADS1256 RESET and SYNC/PDWN high.
+ */
+
+/ {
+	aliases {
+		stepper-ctrl = &step_dir_motion_control;
+	};
+
+	step_dir_motion_control: motion-controller {
+		compatible = "zephyr,gpio-step-dir-stepper-ctrl";
+		step-gpios = <&xiao_d 0 GPIO_ACTIVE_HIGH>;
+		dir-gpios = <&xiao_d 1 GPIO_ACTIVE_HIGH>;
+		invert-direction;
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+
+		button0: button_0 {
+			gpios = <&xiao_d 6 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+		button1: button_1 {
+			gpios = <&xiao_d 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <INPUT_KEY_1>;
+		};
+		button2: button_2 {
+			gpios = <&xiao_d 2 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <INPUT_KEY_2>;
+		};
+		button3: button_3 {
+			gpios = <&xiao_d 3 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <INPUT_KEY_3>;
+		};
+	};
+};
+
+/* The console is the USB serial port; free D6/D7 (UART0) and D4/D5 (I2C0). */
+&uart0 {
+	status = "disabled";
+};
+
+&i2c0 {
+	status = "disabled";
+};
+
+&xiao_spi {
+	cs-gpios = <&xiao_d 4 GPIO_ACTIVE_LOW>;
+
+	ads1256: ads1256@0 {
+		compatible = "ti,ads1256";
+		reg = <0>;
+		spi-max-frequency = <1000000>; /* SCLK period >= 4 tCLKIN (520 ns) */
+		spi-cpha; /* SPI mode 1 */
+		drdy-gpios = <&xiao_d 5 GPIO_ACTIVE_LOW>;
+		vref-mv = <2500>;
+	};
+};

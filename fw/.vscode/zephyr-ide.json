@@ -1,13 +1,13 @@
 {
   "projects": {
-    "adc_dt": {
-      "relPath": "apps/adc_dt",
-      "name": "adc_dt",
+    "prototype": {
+      "relPath": "apps/prototype",
+      "name": "prototype",
       "buildConfigs": {
-        "build/xiao_esp32s3/esp32s3/appcpu": {
+        "build/xiao_esp32s3/esp32s3/procpu": {
           "relBoardSubDir": "seeed/xiao_esp32s3",
-          "board": "xiao_esp32s3/esp32s3/appcpu",
-          "name": "build/xiao_esp32s3/esp32s3/appcpu",
+          "board": "xiao_esp32s3/esp32s3/procpu",
+          "name": "build/xiao_esp32s3/esp32s3/procpu",
           "westBuildArgs": [],
           "westBuildCMakeArgs": [],
           "confFiles": {

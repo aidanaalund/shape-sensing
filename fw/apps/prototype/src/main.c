@@ -1,13 +1,13 @@
 /*
  * Photodiode transimpedance amplifier readout + stepper control
- * nRF52833-DK / Zephyr
+ * XIAO ESP32-S3 + ADS1256 / Zephyr
  *
  *   SW1 (button0): return to 0 degrees
  *   SW2 (button1): tighten to TIGHTEN_DEG degrees
  *   SW3 (button2): debug print (readings for calibrating the photodiode)
  *   SW4 (button3): disable/reenable printing
  *
- * ADC channels (io-channels order in the overlay): Vo, Vref
+ * ADS1256 channels: AIN0 = Vo, AIN1 = Vref (both single-ended vs AINCOM)
  * Periodic CSV output; debug output lines start with '#' so they are easy
  * to filter out when parsing the CSV.
  */
@@ -18,13 +18,14 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/stepper/stepper.h>
 #include <zephyr/drivers/stepper/stepper_ctrl.h>
 #include <zephyr/input/input.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
+
+#include "ads1256.h"
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                          */
@@ -35,6 +36,9 @@
 #define R1_OHMS 150000LL /* Feedback resistor */
 
 #define SAMPLE_PERIOD_MS 1000 /* "y" Hz = 1000 / this */
+#define ADS_DRATE ADS1256_DRATE_60SPS
+#define ADS_PGA ADS1256_PGA_1
+#define ADS_BUFFER true /* input range AGND..AVDD-2 V, ~80 Mohm input impedance */
 #define TIGHTEN_DEG 90 /* "x": target for button 2 */
 #define STEPS_PER_REV 200 /* full steps per rev (1.8 deg) */
 #define STEP_INTERVAL_NS 500000000ULL /* time between micro-steps */
@@ -143,54 +147,38 @@ INPUT_CALLBACK_DEFINE(NULL, button_pressed, NULL);
 #define VREF_IDX  1
 #define NUM_CH    2
 
-#define DT_SPEC_AND_COMMA(node_id, prop, idx) \
-	ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
+/* ADS1256 input (AINx) of each channel */
+static const uint8_t ain_of[NUM_CH] = {0, 1};
 
-/* io-channels order in the overlay: Vo, Vref */
-static const struct adc_dt_spec adc_channels[] = {
-	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels,
-			     DT_SPEC_AND_COMMA)
-};
-
-BUILD_ASSERT(ARRAY_SIZE(adc_channels) == NUM_CH,
-	     "Expected 2 ADC channels in io-channels: Vo, Vref");
-
-static int16_t adc_buf[NUM_CH];
+static const struct ads1256 adc =
+	ADS1256_DT_GET(DT_NODELABEL(ads1256), ADS_PGA, ADS_BUFFER);
 
 struct measurement {
-	int16_t raw[NUM_CH];
-	int32_t mv[NUM_CH];
+	int32_t raw[NUM_CH];
+	int32_t uv[NUM_CH];
 	int64_t i_pa;       /* photodiode current in picoamps */
 };
 
-static int measure(struct adc_sequence *seq, struct measurement *m)
+static int measure(struct measurement *m)
 {
-	int err = adc_read_dt(&adc_channels[0], seq);
-
-	if (err < 0) {
-		printk("# ERROR adc read (%d)\n", err);
-		return err;
-	}
-	seq->calibrate = false; /* calibrate only on the first read */
-
 	for (size_t i = 0; i < NUM_CH; i++) {
-		m->raw[i] = adc_buf[i];
-		m->mv[i] = adc_buf[i];
-		err = adc_raw_to_millivolts_dt(&adc_channels[i], &m->mv[i]);
+		int err = ads1256_read_raw(&adc, ain_of[i], &m->raw[i]);
+
 		if (err < 0) {
-			printk("# ERROR mV conversion ch%d (%d)\n", (int)i, err);
+			printk("# ERROR adc read ch%d (%d)\n", (int)i, err);
 			return err;
 		}
+		m->uv[i] = ads1256_raw_to_uv(&adc, m->raw[i]);
 	}
 
-	int32_t vo_amp_mv = m->mv[VO_IDX] * DIV_NUM / DIV_DEN;
-	m->i_pa = ((int64_t)(vo_amp_mv - m->mv[VREF_IDX]) * 1000000000LL) / R1_OHMS;
+	/* uV / ohm = uA = 1e6 pA */
+	int64_t vo_amp_uv = (int64_t)m->uv[VO_IDX] * DIV_NUM / DIV_DEN;
+
+	m->i_pa = ((vo_amp_uv - m->uv[VREF_IDX]) * 1000000LL) / R1_OHMS;
 
 	return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Output                                                             */
 /* ------------------------------------------------------------------ */
 
 static void print_csv(int64_t t_ms, const struct measurement *m)
@@ -201,7 +189,7 @@ static void print_csv(int64_t t_ms, const struct measurement *m)
 
 	printk("%" PRId64 ",%" PRId32 ",%" PRId32 ",%" PRId64 ",%" PRId32
 	       ",%" PRId32 "\n",
-	       t_ms, m->mv[VO_IDX], m->mv[VREF_IDX], m->i_pa, pos,
+	       t_ms, m->uv[VO_IDX], m->uv[VREF_IDX], m->i_pa, pos,
 	       steps_to_mdeg(pos));
 }
 
@@ -211,11 +199,11 @@ static void print_debug(const struct measurement *m)
 
 	(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
 
-	printk("# DEBUG Vo: raw=%d  %d mV | Vref: raw=%d  %d mV | "
-	       "Vo-Vref=%d mV | I=%" PRId64 " pA | pos=%d steps (%d mdeg)\n",
-	       m->raw[VO_IDX], (int)m->mv[VO_IDX],
-	       m->raw[VREF_IDX], (int)m->mv[VREF_IDX],
-	       (int)(m->mv[VO_IDX] - m->mv[VREF_IDX]), m->i_pa,
+	printk("# DEBUG Vo: raw=%d  %d uV | Vref: raw=%d  %d uV | "
+	       "Vo-Vref=%d uV | I=%" PRId64 " pA | pos=%d steps (%d mdeg)\n",
+	       (int)m->raw[VO_IDX], (int)m->uv[VO_IDX],
+	       (int)m->raw[VREF_IDX], (int)m->uv[VREF_IDX],
+	       (int)(m->uv[VO_IDX] - m->uv[VREF_IDX]), m->i_pa,
 	       (int)pos, (int)steps_to_mdeg(pos));
 }
 
@@ -239,46 +227,15 @@ static int stepper_setup(void)
 	}
 
 	/* Whatever position the motor is in at boot is defined as 0 deg. */
-	(void)stepper_ctrl_set_reference_position(stepper_ctrl, 0);
-	(void)stepper_ctrl_set_microstep_interval(stepper_ctrl, STEP_INTERVAL_NS);
-
-	return 0;
-}
-
-static int adc_setup(struct adc_sequence *seq)
-{
-	int err;
-
-	for (size_t i = 0; i < NUM_CH; i++) {
-		if (!adc_is_ready_dt(&adc_channels[i])) {
-			printk("# ERROR ADC %s not ready\n",
-			       adc_channels[i].dev->name);
-			return -ENODEV;
-		}
-
-		err = adc_channel_setup_dt(&adc_channels[i]);
-		if (err < 0) {
-			printk("# ERROR channel setup #%d (%d)\n", (int)i, err);
-			return err;
-		}
-
-		/* Samples land in the buffer in ascending channel-id order,
-		 * so channel ids must match the io-channels order. */
-		if (adc_channels[i].channel_id != i) {
-			printk("# ERROR channel ids must be 0..%d in order\n",
-			       NUM_CH - 1);
-			return -EINVAL;
-		}
-	}
-
-	/* One sequence covering all channels. Resolution and oversampling are
-	 * taken from channel 0, so both channels should use the same values. */
-	err = adc_sequence_init_dt(&adc_channels[0], seq);
+	err = stepper_ctrl_set_reference_position(stepper_ctrl, 0);
 	if (err < 0) {
+		printk("# ERROR set_reference_position (%d)\n", err);
 		return err;
 	}
-	for (size_t i = 1; i < NUM_CH; i++) {
-		seq->channels |= BIT(adc_channels[i].channel_id);
+	err = stepper_ctrl_set_microstep_interval(stepper_ctrl, STEP_INTERVAL_NS);
+	if (err < 0) {
+		printk("# ERROR set_microstep_interval (%d)\n", err);
+		return err;
 	}
 
 	return 0;
@@ -288,7 +245,7 @@ static int adc_setup(struct adc_sequence *seq)
 /* Main                                                               */
 /* ------------------------------------------------------------------ */
 
-static void handle_cmd(enum cmd c, struct adc_sequence *seq)
+static void handle_cmd(enum cmd c)
 {
 	struct measurement m;
 
@@ -300,7 +257,7 @@ static void handle_cmd(enum cmd c, struct adc_sequence *seq)
 			move_to_deg(TIGHTEN_DEG);
 			break;
 		case CMD_DEBUG:
-			if (measure(seq, &m) == 0) {
+			if (measure(&m) == 0) {
 				print_debug(&m);
 			}
 			break;
@@ -314,7 +271,7 @@ static void handle_cmd(enum cmd c, struct adc_sequence *seq)
 		case CMD_TOGGLE_STREAM:
 			streaming = !streaming;
 			if (streaming) {
-				printk("t_ms,vo_mv,vref_mv,i_pa,pos_steps,pos_mdeg\n");
+				printk("t_ms,vo_uv,vref_uv,i_pa,pos_steps,pos_mdeg\n");
 			} else {
 				printk("# Streaming stopped\n");
 			}
@@ -324,17 +281,20 @@ static void handle_cmd(enum cmd c, struct adc_sequence *seq)
 
 int main(void)
 {
-	struct adc_sequence sequence = {
-		.buffer = adc_buf,
-		.buffer_size = sizeof(adc_buf),
-		.calibrate = true,
-	};
+	int err;
 
-	if (stepper_setup() < 0 || adc_setup(&sequence) < 0) {
+	err = stepper_setup();
+	if (err < 0) {
 		return 0;
 	}
 
-	printk("t_ms,vo_mv,vref_mv,i_pa,pos_steps,pos_mdeg\n");
+	err = ads1256_init(&adc, ADS_DRATE);
+	if (err < 0) {
+		printk("# ERROR ADS1256 init (%d)\n", err);
+		return 0;
+	}
+
+	printk("t_ms,vo_uv,vref_uv,i_pa,pos_steps,pos_mdeg\n");
 
 	int64_t next_ms = k_uptime_get();
 
@@ -345,7 +305,7 @@ int main(void)
 		 * command arrives before next_ms, we take a sample. Stepper
 		 * moves are non-blocking, so sampling continues during motion. */
 		if (k_msgq_get(&cmd_q, &c, K_TIMEOUT_ABS_MS(next_ms)) == 0) {
-			handle_cmd((enum cmd)c, &sequence);
+			handle_cmd((enum cmd)c);
 			continue;
 		}
 
@@ -353,11 +313,17 @@ int main(void)
 			struct measurement m;
 			int64_t now = k_uptime_get();
 
-			if (measure(&sequence, &m) == 0) {
+			if (measure(&m) == 0) {
 				print_csv(now, &m);
 			}
 		}
+
+		/* A slow read or a long command must not cause a burst of
+		 * back-to-back samples afterwards. */
 		next_ms += SAMPLE_PERIOD_MS;
+		if (next_ms < k_uptime_get()) {
+			next_ms = k_uptime_get() + SAMPLE_PERIOD_MS;
+		}
 	}
 
 	return 0;
