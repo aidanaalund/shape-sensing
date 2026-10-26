@@ -63,6 +63,9 @@ int ads1256_init(const struct ads1256 *adc, enum ads1256_drate drate);
 /** One settled single-ended conversion of AINx vs AINCOM (signed 24-bit code). */
 int ads1256_read_raw(const struct ads1256 *adc, uint8_t ain, int32_t *raw);
 
+/** One settled conversion with an arbitrary MUX register value (AINP << 4 | AINN). */
+int ads1256_read_mux(const struct ads1256 *adc, uint8_t mux, int32_t *raw);
+
 /** Convert a raw code to microvolts at the ADC input pin. */
 int32_t ads1256_raw_to_uv(const struct ads1256 *adc, int32_t raw);
 

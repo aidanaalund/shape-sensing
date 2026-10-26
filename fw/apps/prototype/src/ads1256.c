@@ -173,13 +173,17 @@ int ads1256_init(const struct ads1256 *adc, enum ads1256_drate drate)
 
 int ads1256_read_raw(const struct ads1256 *adc, uint8_t ain, int32_t *raw)
 {
-	uint8_t mux = (ain << 4) | ADS1256_AINCOM;
-	uint8_t d[3];
-	int err;
-
 	if (ain > 7) {
 		return -EINVAL;
 	}
+
+	return ads1256_read_mux(adc, (ain << 4) | ADS1256_AINCOM, raw);
+}
+
+int ads1256_read_mux(const struct ads1256 *adc, uint8_t mux, int32_t *raw)
+{
+	uint8_t d[3];
+	int err;
 
 	/* Datasheet "cycling the input multiplexer": WREG MUX, SYNC, WAKEUP, wait
 	 * for DRDY (stays high until the new, fully settled conversion), RDATA. */

@@ -8,7 +8,10 @@
           "relBoardSubDir": "seeed/xiao_esp32s3",
           "board": "xiao_esp32s3/esp32s3/procpu",
           "name": "build/xiao_esp32s3/esp32s3/procpu",
-          "westBuildArgs": [],
+          "westBuildArgs": [
+            "-DOPENOCD=/usr/bin/openocd-esp32openocd",
+            "-DOPENOCD_DEFAULT_PATH=/usr/share/openocd-esp32/scripts"
+          ],
           "westBuildCMakeArgs": [],
           "confFiles": {
             "config": [],

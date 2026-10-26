@@ -38,7 +38,7 @@
 #define SAMPLE_PERIOD_MS 1000 /* "y" Hz = 1000 / this */
 #define ADS_DRATE ADS1256_DRATE_60SPS
 #define ADS_PGA ADS1256_PGA_1
-#define ADS_BUFFER true /* input range AGND..AVDD-2 V, ~80 Mohm input impedance */
+#define ADS_BUFFER false /* TEMP test: buffer is inaccurate near AGND (was true) */
 #define TIGHTEN_DEG 90 /* "x": target for button 2 */
 #define STEPS_PER_REV 200 /* full steps per rev (1.8 deg) */
 #define STEP_INTERVAL_NS 500000000ULL /* time between micro-steps */
@@ -113,6 +113,9 @@ static void button_pressed(struct input_event *evt, void *user_data)
 {
 	ARG_UNUSED(user_data);
 
+	// printk("# DIAG input event type=%d code=%d value=%d\n", evt->type,
+	//        evt->code, evt->value);
+
 	/* Only act on key presses (value 1), not releases. */
 	if (evt->type != INPUT_EV_KEY || evt->value != 1) {
 		return;
@@ -136,6 +139,14 @@ static void button_pressed(struct input_event *evt, void *user_data)
 	}
 }
 
+/* DIAG: temporary, remove once the buttons are sorted out */
+// static const struct gpio_dt_spec diag_sw[4] = {
+// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button0), gpios),
+// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button1), gpios),
+// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button2), gpios),
+// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button3), gpios),
+// };
+
 /* NULL device = listen to every input device. */
 INPUT_CALLBACK_DEFINE(NULL, button_pressed, NULL);
 
@@ -143,8 +154,8 @@ INPUT_CALLBACK_DEFINE(NULL, button_pressed, NULL);
 /* ADC                                                                */
 /* ------------------------------------------------------------------ */
 
-#define VO_IDX    0
-#define VREF_IDX  1
+#define VREF_IDX  0
+#define VO_IDX    1
 #define NUM_CH    2
 
 /* ADS1256 input (AINx) of each channel */
@@ -260,6 +271,19 @@ static void handle_cmd(enum cmd c)
 			if (measure(&m) == 0) {
 				print_debug(&m);
 			}
+			/* DIAG: inputs shorted internally (offset) and every AINx vs AINCOM */
+			int32_t r;
+
+			if (ads1256_read_mux(&adc, (ADS1256_AINCOM << 4) | ADS1256_AINCOM, &r) == 0) {
+				printk("# DIAG AINCOM-AINCOM raw=%d (%d uV)\n", (int)r,
+				       (int)ads1256_raw_to_uv(&adc, r));
+			}
+			for (uint8_t i = 0; i < 8; i++) {
+				if (ads1256_read_raw(&adc, i, &r) == 0) {
+					printk("# DIAG AIN%d raw=%d (%d uV)\n", i, (int)r,
+					       (int)ads1256_raw_to_uv(&adc, r));
+				}
+			}
 			break;
 		case CMD_MOVE_DONE: {
 			int32_t pos = 0;
@@ -308,6 +332,11 @@ int main(void)
 			handle_cmd((enum cmd)c);
 			continue;
 		}
+
+		/* DIAG: raw logical level of SW1..SW4 (1 = pressed) */
+		// printk("# DIAG sw1(D6)=%d sw2(D7)=%d sw3(D2)=%d sw4(D3)=%d\n",
+		//        gpio_pin_get_dt(&diag_sw[0]), gpio_pin_get_dt(&diag_sw[1]),
+		//        gpio_pin_get_dt(&diag_sw[2]), gpio_pin_get_dt(&diag_sw[3]));
 
 		if (streaming) {
 			struct measurement m;

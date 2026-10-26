@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Zephyr IDE West: Debug",
+            "type": "zephyr-ide-west",
+            "request": "launch",
+            "runner": "openocd"
+        },
+        {
+            "name": "Zephyr IDE West: Attach",
+            "type": "zephyr-ide-west",
+            "request": "attach",
+            "runner": "openocd"
+        },
+        {
+            "name": "Zephyr IDE: Debug (west debugserver)",
+            "type": "zephyr-ide-west",
+            "request": "launch"
+        }
+    ]
+}
