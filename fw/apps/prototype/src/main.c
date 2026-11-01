@@ -318,7 +318,7 @@ int main(void)
 		return 0;
 	}
 
-	printk("t_ms,vo_uv,vref_uv,i_pa,pos_steps,pos_mdeg\n");
+	// printk("t_ms,vo_uv,vref_uv,i_pa,pos_steps,pos_mdeg\n");
 
 	int64_t next_ms = k_uptime_get();
 
