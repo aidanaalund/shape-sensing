@@ -35,7 +35,7 @@
 #define DIV_DEN 15  /* Output voltage divider top (15k) */
 #define R1_OHMS 150000LL /* Feedback resistor */
 
-#define SAMPLE_PERIOD_MS 1000 /* "y" Hz = 1000 / this */
+#define SAMPLE_PERIOD_MS 500 /* "y" Hz = 1000 / this */
 #define ADS_DRATE ADS1256_DRATE_60SPS
 #define ADS_PGA ADS1256_PGA_1
 #define ADS_BUFFER false /* TEMP test: buffer is inaccurate near AGND (was true) */
