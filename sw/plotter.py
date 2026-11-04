@@ -34,3 +34,4 @@ with open(f'sensor_data/prototype-{datetime.datetime.now()}.csv', 'w', newline='
             break
 
         time.sleep(0.001)   
+        
