@@ -1,0 +1,21 @@
+description: |
+  TI ADS1256 24-bit delta-sigma ADC on an SPI bus. There is no Zephyr driver
+  for this part; the node is consumed directly by src/ads1256.c.
+  The ADS1256 uses SPI mode 1, so the node must set spi-cpha.
+
+compatible: "ti,ads1256"
+
+include: spi-device.yaml
+
+properties:
+  drdy-gpios:
+    type: phandle-array
+    required: true
+    description: DRDY output of the ADS1256 (active low).
+
+  vref-mv:
+    type: int
+    default: 2500
+    description: |
+      Voltage across VREFP - VREFN in millivolts. Most breakout boards carry a
+      2.5 V reference. Full scale is +/-2*Vref/PGA.

@@ -1,0 +1,3 @@
+mainmenu "Fiber optic sensing test application"
+
+source "Kconfig.zephyr"
