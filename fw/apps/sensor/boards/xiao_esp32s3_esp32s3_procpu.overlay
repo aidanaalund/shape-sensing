@@ -1,16 +1,12 @@
-#include <zephyr/dt-bindings/input/input-event-codes.h>
-
 /*
  * XIAO ESP32-S3 pin usage (see seeed_xiao_connector.dtsi for D-number to GPIO):
  *
  *   D0  A4988 STEP          D8  SCLK  -> ADS1256 SCLK
  *   D1  A4988 DIR           D9  MISO  <- ADS1256 DOUT
- *   D2  SW3 (debug print)   D10 MOSI  -> ADS1256 DIN
- *   D3  SW4 (stream on/off) D4  CS    -> ADS1256 CS
- *   D6  SW1 (return to 0)   D5  DRDY  <- ADS1256 DRDY
- *   D7  SW2 (tighten)
+ *   D10 MOSI -> ADS1256 DIN  D4  CS   -> ADS1256 CS
+ *   D5  DRDY <- ADS1256 DRDY
  *
- * ADS1256 inputs: AIN0 = Vo (photodiode amp output), AIN1 = Vref, AINCOM = GND.
+ * ADS1256 inputs: AIN0 = Vref, AIN1..AIN7 = photodiode amp outputs, AINCOM = GND.
  * Tie ADS1256 RESET and SYNC/PDWN high.
  */
 
@@ -24,27 +20,6 @@
 		step-gpios = <&xiao_d 0 GPIO_ACTIVE_HIGH>;
 		dir-gpios = <&xiao_d 1 GPIO_ACTIVE_HIGH>;
 		invert-direction;
-	};
-
-	buttons {
-		compatible = "gpio-keys";
-
-		button0: button_0 {
-			gpios = <&xiao_d 6 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-			zephyr,code = <INPUT_KEY_0>;
-		};
-		button1: button_1 {
-			gpios = <&xiao_d 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-			zephyr,code = <INPUT_KEY_1>;
-		};
-		button2: button_2 {
-			gpios = <&xiao_d 2 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-			zephyr,code = <INPUT_KEY_2>;
-		};
-		button3: button_3 {
-			gpios = <&xiao_d 3 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
-			zephyr,code = <INPUT_KEY_3>;
-		};
 	};
 };
 

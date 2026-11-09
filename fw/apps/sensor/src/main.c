@@ -2,25 +2,36 @@
  * Photodiode transimpedance amplifier readout + stepper control
  * XIAO ESP32-S3 + ADS1256 / Zephyr
  *
- *   SW1 (button0): return to 0 degrees
- *   SW2 (button1): tighten to TIGHTEN_DEG degrees
- *   SW3 (button2): debug print (readings for calibrating the photodiode)
- *   SW4 (button3): disable/reenable printing
+ * Stepper control is over the USB serial console (type in any serial
+ * terminal). Input is only accepted while the stepper is idle; anything
+ * typed while it is moving is discarded.
  *
- * ADS1256 channels: AIN0 = Vo, AIN1 = Vref (both single-ended vs AINCOM)
- * Periodic CSV output; debug output lines start with '#' so they are easy
+ *   0..359 <Enter>  move to that absolute angle (degrees)
+ *   ] / [           increment / decrement by MOVE_SMALL (1 deg)
+ *   } / {           increment / decrement by MOVE_MED (10 deg)
+ *   > / <           increment / decrement by MOVE_LARGE (90 deg)
+ *   p               pause / resume CSV streaming
+ *   d               debug print (raw readings, for calibrating the photodiodes)
+ *   ?               help
+ *
+ * ADS1256 channels (single-ended vs AINCOM):
+ *	AIN0 = Vref, AIN1..AIN7 = Vo1..Vo7 (seven photodiode amplifier outputs)
+ *
+ * Periodic CSV output; all other output lines start with '#' so they are easy
  * to filter out when parsing the CSV.
  */
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/stepper/stepper.h>
 #include <zephyr/drivers/stepper/stepper_ctrl.h>
-#include <zephyr/input/input.h>
+#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
@@ -38,10 +49,15 @@
 #define SAMPLE_PERIOD_MS 500 /* "y" Hz = 1000 / this */
 #define ADS_DRATE ADS1256_DRATE_60SPS
 #define ADS_PGA ADS1256_PGA_1
-#define ADS_BUFFER false /* TEMP test: buffer is inaccurate near AGND (was true) */
-#define TIGHTEN_DEG 90 /* "x": target for button 2 */
+#define ADS_BUFFER false
+#define MOVE_LARGE 90
+#define MOVE_MED 10
+#define MOVE_SMALL 1
+#define MAX_DEG 359
 #define STEPS_PER_REV 200 /* full steps per rev (1.8 deg) */
 #define STEP_INTERVAL_NS 500000000ULL /* time between micro-steps */
+
+#define INPUT_POLL_MS 5
 
 /* ------------------------------------------------------------------ */
 /* Stepper                                                            */
@@ -52,12 +68,23 @@ static const struct device *const stepper_ctrl =
 
 static bool streaming = true;
 
-#define MICROSTEP_RES 1 // Edit as needed
+/* Set when a move starts, cleared when the stepper reports completion. */
+static atomic_t moving;
+
+/* Last commanded angle. Tracked separately from the motor position because
+ * one step is 1.8 deg: small increments accumulate here and only turn into a
+ * physical step once they add up. */
+static int32_t cmd_deg;
+
+#define MICROSTEP_RES 1 // Not 1 degree resolution (change to 8 to achieve, but rewire MS pins)
 #define STEPS_PER_360 (STEPS_PER_REV * MICROSTEP_RES)
 
+/* Nearest step (round half away from zero). */
 static int32_t deg_to_steps(int32_t deg)
 {
-	return (int32_t)(((int64_t)deg * STEPS_PER_360) / 360);
+	int32_t n = deg * STEPS_PER_360;
+
+	return (n >= 0 ? n + 180 : n - 180) / 360;
 }
 
 static int32_t steps_to_mdeg(int32_t steps)
@@ -67,34 +94,52 @@ static int32_t steps_to_mdeg(int32_t steps)
 
 static void move_to_deg(int32_t deg)
 {
-	int err = stepper_ctrl_move_to(stepper_ctrl, deg_to_steps(deg));
+	int32_t pos = 0;
+	int32_t target = deg_to_steps(deg);
+	int err;
 
+	cmd_deg = deg;
+
+	(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
+	if (target == pos) {
+		printk("# At %d deg (no step needed)\n", (int)deg);
+		return;
+	}
+
+	atomic_set(&moving, 1);
+	err = stepper_ctrl_move_to(stepper_ctrl, target);
 	if (err < 0) {
+		atomic_set(&moving, 0);
 		printk("# ERROR move_to %d deg (%d)\n", (int)deg, err);
 	} else {
-		printk("# Moving to %d deg\n", (int)deg);
+		printk("# Moving to %d deg (%d steps)\n", (int)deg, (int)target);
 	}
 }
 
 /* ------------------------------------------------------------------ */
-/* Command queue (buttons + stepper callback -> main loop)            */
+/* Command queue (serial input + stepper callback -> main)           */
 /* ------------------------------------------------------------------ */
 
 enum cmd {
-	CMD_RESET,
-	CMD_TIGHTEN,
+	CMD_GOTO,	/* arg = absolute degrees */
+	CMD_STEP,	/* arg = signed delta in degrees */
 	CMD_DEBUG,
 	CMD_MOVE_DONE,
 	CMD_TOGGLE_STREAM,
 };
 
-K_MSGQ_DEFINE(cmd_q, sizeof(uint8_t), 8, 1);
+struct cmd_msg {
+	uint8_t cmd;
+	int16_t arg;
+};
 
-static void post_cmd(enum cmd c)
+K_MSGQ_DEFINE(cmd_q, sizeof(struct cmd_msg), 8, 2);
+
+static void post_cmd(enum cmd c, int16_t arg)
 {
-	uint8_t v = (uint8_t)c;
+	struct cmd_msg m = {.cmd = (uint8_t)c, .arg = arg};
 
-	(void)k_msgq_put(&cmd_q, &v, K_NO_WAIT);
+	(void)k_msgq_put(&cmd_q, &m, K_NO_WAIT);
 }
 
 static void stepper_callback(const struct device *dev,
@@ -105,61 +150,131 @@ static void stepper_callback(const struct device *dev,
 	ARG_UNUSED(user_data);
 
 	if (event == STEPPER_CTRL_EVENT_STEPS_COMPLETED) {
-		post_cmd(CMD_MOVE_DONE);
+		post_cmd(CMD_MOVE_DONE, 0);
 	}
 }
 
-static void button_pressed(struct input_event *evt, void *user_data)
+/* ------------------------------------------------------------------ */
+/* Serial input (USB console -> commands)                             */
+/* ------------------------------------------------------------------ */
+
+static const struct device *const console_dev =
+	DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+
+static void print_help(void)
 {
-	ARG_UNUSED(user_data);
+	printk("# Commands (only accepted while the stepper is idle):\n"
+	       "#   0-%d <Enter>  go to absolute angle (deg)\n"
+	       "#   ] / [        +/- %d deg\n"
+	       "#   } / {        +/- %d deg\n"
+	       "#   > / <        +/- %d deg\n"
+	       "#   p            pause/resume CSV streaming\n"
+	       "#   d            debug print\n",
+	       MAX_DEG, MOVE_SMALL, MOVE_MED, MOVE_LARGE);
+}
 
-	// printk("# DIAG input event type=%d code=%d value=%d\n", evt->type,
-	//        evt->code, evt->value);
-
-	/* Only act on key presses (value 1), not releases. */
-	if (evt->type != INPUT_EV_KEY || evt->value != 1) {
-		return;
-	}
-
-	switch (evt->code) {
-	case INPUT_KEY_0:
-		post_cmd(CMD_RESET);
-		break;
-	case INPUT_KEY_1:
-		post_cmd(CMD_TIGHTEN);
-		break;
-	case INPUT_KEY_2:
-		post_cmd(CMD_DEBUG);
-		break;
-	case INPUT_KEY_3:
-		post_cmd(CMD_TOGGLE_STREAM);
-		break;
-	default:
-		break;
+/* Returns the signed step for a one-key increment command, or 0. */
+static int16_t key_to_delta(unsigned char ch)
+{
+	switch (ch) {
+	case ']': return MOVE_SMALL;
+	case '[': return -MOVE_SMALL;
+	case '}': return MOVE_MED;
+	case '{': return -MOVE_MED;
+	case '>': return MOVE_LARGE;
+	case '<': return -MOVE_LARGE;
+	default: return 0;
 	}
 }
 
-/* DIAG: temporary, remove once the buttons are sorted out */
-// static const struct gpio_dt_spec diag_sw[4] = {
-// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button0), gpios),
-// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button1), gpios),
-// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button2), gpios),
-// 	GPIO_DT_SPEC_GET(DT_NODELABEL(button3), gpios),
-// };
+static void input_thread(void *a, void *b, void *c)
+{
+	char num[4];	/* up to 3 digits + NUL */
+	size_t n = 0;
 
-/* NULL device = listen to every input device. */
-INPUT_CALLBACK_DEFINE(NULL, button_pressed, NULL);
+	ARG_UNUSED(a);
+	ARG_UNUSED(b);
+	ARG_UNUSED(c);
+
+	while (1) {
+		unsigned char ch;
+
+		if (uart_poll_in(console_dev, &ch) != 0) {
+			k_sleep(K_MSEC(INPUT_POLL_MS));
+			continue;
+		}
+
+		if (ch == '\n' && n == 0) {
+			continue; /* second half of a CRLF */
+		}
+
+		/* The stepper is busy: discard the input, and any half-typed number. */
+		if (atomic_get(&moving)) {
+			n = 0;
+			if (ch == '\r' || ch == '\n' || ch == '?' || key_to_delta(ch) != 0) {
+				printk("# Busy, input ignored\n");
+			}
+			if (ch != 'p' && ch != 'd') {
+				continue;
+			}
+			/* 'p' and 'd' do not move the stepper, so they stay available. */
+		}
+
+		if (ch >= '0' && ch <= '9') {
+			if (n < sizeof(num) - 1) {
+				num[n++] = (char)ch;
+				printk("%c", ch);
+			}
+		} else if (ch == '\r' || ch == '\n') {
+			if (n == 0) {
+				continue;
+			}
+			num[n] = '\0';
+			n = 0;
+
+			int v = 0;
+
+			for (const char *s = num; *s; s++) {
+				v = v * 10 + (*s - '0');
+			}
+			printk("\n");
+			if (v > MAX_DEG) {
+				printk("# ERROR %d is out of range [0,%d]\n", v, MAX_DEG);
+			} else {
+				post_cmd(CMD_GOTO, (int16_t)v);
+			}
+		} else if (ch == 0x08 || ch == 0x7f) {
+			if (n > 0) {
+				n--;
+				printk("\b \b");
+			}
+		} else if (ch == 'p') {
+			n = 0;
+			post_cmd(CMD_TOGGLE_STREAM, 0);
+		} else if (ch == 'd') {
+			n = 0;
+			post_cmd(CMD_DEBUG, 0);
+		} else if (ch == '?') {
+			n = 0;
+			print_help();
+		} else if (key_to_delta(ch) != 0) {
+			n = 0;
+			post_cmd(CMD_STEP, key_to_delta(ch));
+		} else {
+			n = 0; /* unknown key: drop any partial number */
+		}
+	}
+}
+
+K_THREAD_DEFINE(input_tid, 1024, input_thread, NULL, NULL, NULL, 7, 0, 0);
 
 /* ------------------------------------------------------------------ */
 /* ADC                                                                */
 /* ------------------------------------------------------------------ */
 
 #define VREF_IDX  0
-#define VO_IDX    1
-#define NUM_CH    2
-
-/* ADS1256 input (AINx) of each channel */
-static const uint8_t ain_of[NUM_CH] = {0, 1};
+#define NUM_SIG   7			/* photodiode channels */
+#define NUM_CH    (1 + NUM_SIG)	/* Vref + signals; channel i is AINi */
 
 static const struct ads1256 adc =
 	ADS1256_DT_GET(DT_NODELABEL(ads1256), ADS_PGA, ADS_BUFFER);
@@ -167,30 +282,44 @@ static const struct ads1256 adc =
 struct measurement {
 	int32_t raw[NUM_CH];
 	int32_t uv[NUM_CH];
-	int64_t i_pa;       /* photodiode current in picoamps */
+	int64_t i_pa[NUM_SIG];	/* photodiode currents in picoamps */
 };
 
 static int measure(struct measurement *m)
 {
 	for (size_t i = 0; i < NUM_CH; i++) {
-		int err = ads1256_read_raw(&adc, ain_of[i], &m->raw[i]);
+		int err = ads1256_read_raw(&adc, (uint8_t)i, &m->raw[i]);
 
 		if (err < 0) {
-			printk("# ERROR adc read ch%d (%d)\n", (int)i, err);
+			printk("# ERROR adc read AIN%d (%d)\n", (int)i, err);
 			return err;
 		}
 		m->uv[i] = ads1256_raw_to_uv(&adc, m->raw[i]);
 	}
 
-	/* uV / ohm = uA = 1e6 pA */
-	int64_t vo_amp_uv = (int64_t)m->uv[VO_IDX] * DIV_NUM / DIV_DEN;
+	for (size_t s = 0; s < NUM_SIG; s++) {
+		/* uV / ohm = uA = 1e6 pA */
+		int64_t vo_amp_uv = (int64_t)m->uv[1 + s] * DIV_NUM / DIV_DEN;
 
-	m->i_pa = ((vo_amp_uv - m->uv[VREF_IDX]) * 1000000LL) / R1_OHMS;
+		m->i_pa[s] = ((vo_amp_uv - m->uv[VREF_IDX]) * 1000000LL) / R1_OHMS;
+	}
 
 	return 0;
 }
 
 /* ------------------------------------------------------------------ */
+
+static void print_csv_header(void)
+{
+	printk("t_ms,vref_uv");
+	for (int i = 1; i <= NUM_SIG; i++) {
+		printk(",vo%d_uv", i);
+	}
+	for (int i = 1; i <= NUM_SIG; i++) {
+		printk(",i%d_pa", i);
+	}
+	printk(",pos_steps,pos_mdeg\n");
+}
 
 static void print_csv(int64_t t_ms, const struct measurement *m)
 {
@@ -198,10 +327,14 @@ static void print_csv(int64_t t_ms, const struct measurement *m)
 
 	(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
 
-	printk("%" PRId64 ",%" PRId32 ",%" PRId32 ",%" PRId64 ",%" PRId32
-	       ",%" PRId32 "\n",
-	       t_ms, m->uv[VO_IDX], m->uv[VREF_IDX], m->i_pa, pos,
-	       steps_to_mdeg(pos));
+	printk("%" PRId64 ",%" PRId32, t_ms, m->uv[VREF_IDX]);
+	for (size_t i = 1; i < NUM_CH; i++) {
+		printk(",%" PRId32, m->uv[i]);
+	}
+	for (size_t s = 0; s < NUM_SIG; s++) {
+		printk(",%" PRId64, m->i_pa[s]);
+	}
+	printk(",%" PRId32 ",%" PRId32 "\n", pos, steps_to_mdeg(pos));
 }
 
 static void print_debug(const struct measurement *m)
@@ -210,16 +343,20 @@ static void print_debug(const struct measurement *m)
 
 	(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
 
-	printk("# DEBUG Vo: raw=%d  %d uV | Vref: raw=%d  %d uV | "
-	       "Vo-Vref=%d uV | I=%" PRId64 " pA | pos=%d steps (%d mdeg)\n",
-	       (int)m->raw[VO_IDX], (int)m->uv[VO_IDX],
-	       (int)m->raw[VREF_IDX], (int)m->uv[VREF_IDX],
-	       (int)(m->uv[VO_IDX] - m->uv[VREF_IDX]), m->i_pa,
-	       (int)pos, (int)steps_to_mdeg(pos));
+	printk("# DEBUG Vref: raw=%d  %d uV\n", (int)m->raw[VREF_IDX],
+	       (int)m->uv[VREF_IDX]);
+	for (size_t s = 0; s < NUM_SIG; s++) {
+		printk("# DEBUG Vo%d: raw=%d  %d uV | Vo-Vref=%d uV | "
+		       "I=%" PRId64 " pA\n",
+		       (int)(s + 1), (int)m->raw[1 + s], (int)m->uv[1 + s],
+		       (int)(m->uv[1 + s] - m->uv[VREF_IDX]), m->i_pa[s]);
+	}
+	printk("# DEBUG pos=%d steps (%d mdeg)\n", (int)pos,
+	       (int)steps_to_mdeg(pos));
 }
 
 /* ------------------------------------------------------------------ */
-/* Setup helpers                                                      */
+/* Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
 static int stepper_setup(void)
@@ -256,56 +393,68 @@ static int stepper_setup(void)
 /* Main                                                               */
 /* ------------------------------------------------------------------ */
 
-static void handle_cmd(enum cmd c)
+static void handle_debug(void)
 {
 	struct measurement m;
 
-	switch (c) {
-		case CMD_RESET:
-			move_to_deg(0);
-			break;
-		case CMD_TIGHTEN:
-			move_to_deg(TIGHTEN_DEG);
-			break;
-		case CMD_DEBUG:
-			if (measure(&m) == 0) {
-				print_debug(&m);
-			}
-			/* DIAG: inputs shorted internally (offset) and every AINx vs AINCOM */
-			int32_t r;
+	if (measure(&m) == 0) {
+		print_debug(&m);
+	}
+}
 
-			if (ads1256_read_mux(&adc, (ADS1256_AINCOM << 4) | ADS1256_AINCOM, &r) == 0) {
-				printk("# DIAG AINCOM-AINCOM raw=%d (%d uV)\n", (int)r,
-				       (int)ads1256_raw_to_uv(&adc, r));
-			}
-			for (uint8_t i = 0; i < 8; i++) {
-				if (ads1256_read_raw(&adc, i, &r) == 0) {
-					printk("# DIAG AIN%d raw=%d (%d uV)\n", i, (int)r,
-					       (int)ads1256_raw_to_uv(&adc, r));
-				}
-			}
-			break;
-		case CMD_MOVE_DONE: {
-			int32_t pos = 0;
-			(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
-			printk("# Move complete: pos=%d steps (%d mdeg)\n",
-				(int)pos, (int)steps_to_mdeg(pos));
-			break;
+static void handle_cmd(const struct cmd_msg *msg)
+{
+	/* Motion commands are only accepted while the stepper is idle. */
+	if ((msg->cmd == CMD_GOTO || msg->cmd == CMD_STEP) &&
+	    atomic_get(&moving)) {
+		printk("# Busy, command ignored\n");
+		return;
+	}
+
+	switch (msg->cmd) {
+	case CMD_GOTO:
+		move_to_deg(msg->arg);
+		break;
+	case CMD_STEP: {
+		int32_t target = CLAMP(cmd_deg + msg->arg, 0, MAX_DEG);
+
+		if (target == cmd_deg) {
+			printk("# At limit (%d deg)\n", (int)cmd_deg);
+		} else {
+			move_to_deg(target);
 		}
-		case CMD_TOGGLE_STREAM:
-			streaming = !streaming;
-			if (streaming) {
-				printk("t_ms,vo_uv,vref_uv,i_pa,pos_steps,pos_mdeg\n");
-			} else {
-				printk("# Streaming stopped\n");
-			}
-			break;
+		break;
+	}
+	case CMD_DEBUG:
+		handle_debug();
+		break;
+	case CMD_MOVE_DONE: {
+		int32_t pos = 0;
+
+		atomic_set(&moving, 0);
+		(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
+		printk("# Move complete: pos=%d steps (%d mdeg), ready for input\n",
+		       (int)pos, (int)steps_to_mdeg(pos));
+		break;
+	}
+	case CMD_TOGGLE_STREAM:
+		streaming = !streaming;
+		if (streaming) {
+			print_csv_header();
+		} else {
+			printk("# Streaming stopped\n");
+		}
+		break;
 	}
 }
 
 int main(void)
 {
 	int err;
+
+	if (!device_is_ready(console_dev)) {
+		return 0;
+	}
 
 	err = stepper_setup();
 	if (err < 0) {
@@ -318,25 +467,21 @@ int main(void)
 		return 0;
 	}
 
-	// printk("t_ms,vo_uv,vref_uv,i_pa,pos_steps,pos_mdeg\n");
+	print_help();
+	print_csv_header();
 
 	int64_t next_ms = k_uptime_get();
 
 	while (1) {
-		uint8_t c;
+		struct cmd_msg msg;
 
 		/* Waiting for a command doubles as the sampling timer: if no
 		 * command arrives before next_ms, we take a sample. Stepper
 		 * moves are non-blocking, so sampling continues during motion. */
-		if (k_msgq_get(&cmd_q, &c, K_TIMEOUT_ABS_MS(next_ms)) == 0) {
-			handle_cmd((enum cmd)c);
+		if (k_msgq_get(&cmd_q, &msg, K_TIMEOUT_ABS_MS(next_ms)) == 0) {
+			handle_cmd(&msg);
 			continue;
 		}
-
-		/* DIAG: raw logical level of SW1..SW4 (1 = pressed) */
-		// printk("# DIAG sw1(D6)=%d sw2(D7)=%d sw3(D2)=%d sw4(D3)=%d\n",
-		//        gpio_pin_get_dt(&diag_sw[0]), gpio_pin_get_dt(&diag_sw[1]),
-		//        gpio_pin_get_dt(&diag_sw[2]), gpio_pin_get_dt(&diag_sw[3]));
 
 		if (streaming) {
 			struct measurement m;
@@ -347,8 +492,7 @@ int main(void)
 			}
 		}
 
-		/* A slow read or a long command must not cause a burst of
-		 * back-to-back samples afterwards. */
+		// A slow read or a long command must not cause a burst of back-to-back samples afterwards.
 		next_ms += SAMPLE_PERIOD_MS;
 		if (next_ms < k_uptime_get()) {
 			next_ms = k_uptime_get() + SAMPLE_PERIOD_MS;
