@@ -1,0 +1,26 @@
+image,length_px,width_px,px_per_mm,edge_frac,end_x_px,end_y_px,end_reason
+img_r00_c00.png,440.2,10.84,4.334,0.75,341.3,608.4,backdrop edge
+img_r00_c01.png,491.3,10.67,4.270,0.91,373.0,677.9,backdrop edge
+img_r00_c02.png,450.1,10.84,4.334,0.95,380.7,636.6,backdrop edge
+img_r00_c03.png,435.3,11.03,4.414,0.96,385.7,622.0,backdrop edge
+img_r00_c04.png,468.5,10.68,4.272,0.90,359.2,644.6,backdrop edge
+img_r01_c00.png,,,,,,,failed
+img_r01_c01.png,,,,,,,failed
+img_r01_c02.png,,,,,,,failed
+img_r01_c03.png,,,,,,,failed
+img_r01_c04.png,,,,,,,failed
+img_r02_c00.png,,,,,,,failed
+img_r02_c01.png,,,,,,,failed
+img_r02_c02.png,,,,,,,failed
+img_r02_c03.png,,,,,,,failed
+img_r02_c04.png,,,,,,,failed
+img_r03_c00.png,,,,,,,failed
+img_r03_c01.png,,,,,,,failed
+img_r03_c02.png,,,,,,,failed
+img_r03_c03.png,,,,,,,failed
+img_r03_c04.png,,,,,,,failed
+img_r04_c00.png,,,,,,,failed
+img_r04_c01.png,,,,,,,failed
+img_r04_c02.png,,,,,,,failed
+img_r04_c03.png,,,,,,,failed
+img_r04_c04.png,,,,,,,failed

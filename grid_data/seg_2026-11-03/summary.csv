@@ -1,0 +1,4 @@
+image,length_px,width_px,px_per_mm,edge_frac,end_x_px,end_y_px,end_reason
+img_r00_c00.png,369.6,9.58,3.831,0.82,649.3,568.5,tip
+img_r01_c00.png,354.4,9.76,3.905,0.64,482.8,520.8,tip
+img_r02_c00.png,334.2,9.30,3.721,0.67,372.0,419.3,tip
