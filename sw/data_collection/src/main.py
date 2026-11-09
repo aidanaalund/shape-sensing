@@ -9,7 +9,7 @@ import mcu
 import serial.serialutil
 
 DEVICE_NAME: str = '/dev/ttyACM0' # NOTE: Windows users, check device manager for appropriate name (e.g. 'COM4').
-SNAPSHOT_LENGTH = 5 # number of seconds we take data from to average at 2 samples / second
+SNAPSHOT_LENGTH = 5 # seconds we take data from to average at 2 samples / second
 
 # TODO: handle camera stuff and syncing
 

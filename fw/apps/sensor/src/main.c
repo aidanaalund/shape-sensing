@@ -15,7 +15,8 @@
  *   ?               help
  *
  * ADS1256 channels (single-ended vs AINCOM):
- *	AIN0 = Vref, AIN1..AIN7 = Vo1..Vo7 (seven photodiode amplifier outputs)
+ *	AIN0 = Vref, AIN1..AIN3 = Vo1..Vo3 (three photodiode amplifier outputs) OR AIN1..AIN7 = Vo1..Vo7 (seven outputs)
+ *
  *
  * Periodic CSV output; all other output lines start with '#' so they are easy
  * to filter out when parsing the CSV.
@@ -273,7 +274,7 @@ K_THREAD_DEFINE(input_tid, 1024, input_thread, NULL, NULL, NULL, 7, 0, 0);
 /* ------------------------------------------------------------------ */
 
 #define VREF_IDX  0
-#define NUM_SIG   7			/* photodiode channels */
+#define NUM_SIG   3	/* OR: 7 */		/* photodiode channels */
 #define NUM_CH    (1 + NUM_SIG)	/* Vref + signals; channel i is AINi */
 
 static const struct ads1256 adc =
