@@ -22,7 +22,7 @@ except ImportError:
     import grid_capture as cam  # python app/
     import mcu as esp
 
-SETTINGS_FILE = Path.home() / ".grid_capture.json"
+SETTINGS_FILE = Path.cwd() / ".grid_capture.json" 
 KEY_LEFT, KEY_UP, KEY_RIGHT, KEY_DOWN = 2424832, 2490368, 2555904, 2621440 # cv2.waitKeyEx
 
 def main():
@@ -36,7 +36,7 @@ def main():
     ap.add_argument("--rows", type=int, help="# of rows in grid (default: 5)")
     ap.add_argument("--cols", type=int, help="# of columns in grid (default: 5)")
     ap.add_argument("--cam", type=int, help="OpenCV camera index (default: 0)")
-    ap.add_argument("--out", type=str, help="Output directory (default: ../data)")
+    ap.add_argument("--out", type=str, help="Output directory (default: ../../data/experimental)")
     ap.add_argument("--prefix", type=str, help="Image format (default: img)")
     ap.add_argument("--width", type=int, help="# of horizontal pixels (default: 1280)")
     ap.add_argument("--height", type=int, help="# of vertical pixels (default: 720)")
@@ -84,10 +84,14 @@ def main():
 
     # TODO: start taking keyboard input and parsing it
     # TODO: allow for 'snapshots'
-    try:
+    try:      
         device = a.device
-        esp.begin_communication(device, out / "sensor_data")
-        print(f"Connected to {device}!")
+        try:
+            esp.begin_communication(device, out / "sensor_data")
+        except serial.serialutil.SerialException:
+            print(f"ERROR: Couldn't find/open {device}. Check if the device is plugged in or if the correct name is used.")
+            print(f"Connected to {device}!")
+
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -133,8 +137,6 @@ def main():
                 cap.set(cv2.CAP_PROP_SETTINGS, 1)
     except KeyboardInterrupt:
         print("Interrupted")
-    except serial.serialutil.SerialException:
-        print(f"ERROR: Couldn't find/open {device}. Check if the device is plugged in or if the correct name is used.")
     finally:
         cap.release()
         log_f.close()

@@ -78,7 +78,7 @@ def setup_dialog(defaults):
     root = ctk.CTk()
     root.geometry("360x360")
     root.title("Grid capture setup")
-    font = ctk.CTkFont(size=FONT_SIZE)  # CTkFont scales with ctk widget scaling
+    font = ctk.CTkFont(size=FONT_SIZE)
     frm = ctk.CTkFrame(root, fg_color="transparent")
     frm.pack(padx=16, pady=16)
     vars_, result = {}, {}
