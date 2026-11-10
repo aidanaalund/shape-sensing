@@ -1,0 +1,19 @@
+[project]
+name = "data-collection"
+dynamic = ["version"]
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "customtkinter",
+    "cv2_enumerate_cameras",
+    "pyserial"
+]
+authors = [
+  { name="Aidan Aalund", email="aidan.aalund@utexas.edu" },
+  { name="Alexa Aguilar Izquierdo", email="alexaizq@utexas.edu" }
+]
+description = "Data collection software for our ECE 382N-Tac Project at UT Austin."
+readme = "README.md"
+
+[project.urls]
+Homepage = "https://github.com/aidanaalund/shape-sensing"
