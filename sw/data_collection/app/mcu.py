@@ -1,5 +1,4 @@
 import csv
-import datetime
 import time
 
 import serial
@@ -14,13 +13,12 @@ def goto(ser, deg: int):
 def begin_communication(device_name: str, output_dir: str):
     ser = serial.Serial(device_name)
 
-    with open(f'{output_dir}/sensor_data/prototype-{datetime.datetime.now()}.csv', 'w', newline='',
-                                                                        encoding="utf8") as csvfile:
-        fieldnames = ['t_ms','vref_uv','vo1_uv','vo2_uv','vo3_uv',
-            'i1_pa','i2_pa','i3_pa','pos_steps','pos_mdeg']
+    with open(f'{output_dir}/sensor_data/intensities.csv', 'w', newline='', encoding="utf8") as csvfile:
         # fieldnames = ['t_ms','vref_uv','vo1_uv','vo2_uv','vo3_uv',
-        #       'vo4_uv','vo5_uv','vo6_uv','vo7_uv','i1_pa','i2_pa',
-        #       'i3_pa','i4_pa','i5_pa','i6_pa','i7_pa','pos_steps','pos_mdeg']
+        #     'i1_pa','i2_pa','i3_pa','pos_steps','pos_mdeg']
+        fieldnames = ['t_ms','vref_uv','vo1_uv','vo2_uv','vo3_uv',
+              'vo4_uv','vo5_uv','vo6_uv','vo7_uv','i1_pa','i2_pa',
+              'i3_pa','i4_pa','i5_pa','i6_pa','i7_pa']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         while True:

@@ -36,7 +36,7 @@ def main():
     ap.add_argument("--rows", type=int, help="# of rows in grid (default: 5)")
     ap.add_argument("--cols", type=int, help="# of columns in grid (default: 5)")
     ap.add_argument("--cam", type=int, help="OpenCV camera index (default: 0)")
-    ap.add_argument("--out", type=str, help="Output directory (default: ../../data/experimental)")
+    ap.add_argument("--out", type=str, help="Output directory (default: ../data/experimental)")
     ap.add_argument("--prefix", type=str, help="Image format (default: img)")
     ap.add_argument("--width", type=int, help="# of horizontal pixels (default: 1280)")
     ap.add_argument("--height", type=int, help="# of vertical pixels (default: 720)")
@@ -46,7 +46,7 @@ def main():
     a = ap.parse_args()
 
     # defaults < last used settings < command line; the setup window shows the result
-    cfg = {"rows": 5, "cols": 5, "cam": 0, "cam_name": "", "out": "../../data/experimental", "prefix": "img",
+    cfg = {"rows": 5, "cols": 5, "cam": 0, "cam_name": "", "out": "../data/experimental", "prefix": "img",
         "width": 1280, "height": 720, "fps": 30, "fourcc": "MJPG", "device": "/dev/ttyACM0", "length": 5}
     try:
         cfg.update(json.loads(SETTINGS_FILE.read_text()))
@@ -62,7 +62,7 @@ def main():
     SETTINGS_FILE.write_text(json.dumps(cfg, indent=1))
     a = argparse.Namespace(**cfg)
 
-    out = Path(a.out)
+    out = Path(a.out) / f"{datetime.now().isoformat(timespec="seconds")}"
     out_cv = out / "grid_data"
     out_cv.mkdir(parents=True, exist_ok=True)
     log_path = out_cv / "log.csv"
@@ -101,7 +101,7 @@ def main():
             scale = min(1.0, 1600 / vis.shape[1])
             cv2.imshow(win, cv2.resize(vis, None, fx=scale, fy=scale))
             k = cv2.waitKeyEx(1)
-            if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1:   # window closed with X
+            if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1: # window closed with X
                 break
             if k == -1:
                 continue

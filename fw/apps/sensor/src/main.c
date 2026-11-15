@@ -2,14 +2,12 @@
  * Photodiode transimpedance amplifier readout
  * XIAO ESP32-S3 + ADS1256 / Zephyr
  *
- *
- *   p               pause / resume CSV streaming
- *   d               debug print (raw readings, for calibrating the photodiodes)
- *   ?               help
+ *   p		pause / resume CSV streaming
+ *   d		debug print (raw readings, for calibrating the photodiodes)
+ *   ?		help
  *
  * ADS1256 channels (single-ended vs AINCOM):
- *	AIN0 = Vref, AIN1..AIN3 = Vo1..Vo3 (three photodiode amplifier outputs) OR AIN1..AIN7 = Vo1..Vo7 (seven outputs)
- *
+ * AIN0 = Vref, AIN1..AIN3 = Vo1..Vo7 (seven photodiode amplifier outputs) OR AIN1..AIN7 = Vo1..Vo7 (seven outputs)
  *
  * Periodic CSV output; all other output lines start with '#' so they are easy
  * to filter out when parsing the CSV.
@@ -23,8 +21,6 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/drivers/stepper/stepper.h>
-#include <zephyr/drivers/stepper/stepper_ctrl.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
@@ -47,17 +43,10 @@
 
 #define INPUT_POLL_MS 5
 
-/* ------------------------------------------------------------------ */
-/* Stepper                                                            */
-/* ------------------------------------------------------------------ */
-
-static const struct device *const stepper_ctrl =
-	DEVICE_DT_GET(DT_ALIAS(stepper_ctrl));
-
 static bool streaming = true;
 
 /* ------------------------------------------------------------------ */
-/* Command queue (serial input + stepper callback -> main)           */
+/* Command queue (serial input -> main)           */
 /* ------------------------------------------------------------------ */
 
 enum cmd {
@@ -88,9 +77,9 @@ static const struct device *const console_dev =
 
 static void print_help(void)
 {
-	printk("# Commands (only accepted while the stepper is idle):\n"
-	       "#   p            pause/resume CSV streaming\n"
-	       "#   d            debug print\n");
+	printk("# Commands:\n"
+	       "# p:	pause/resume CSV streaming\n"
+	       "# d:	debug print\n");
 }
 
 static void input_thread(void *a, void *b, void *c)
@@ -155,7 +144,7 @@ static const struct ads1256 adc =
 struct measurement {
 	int32_t raw[NUM_CH];
 	int32_t uv[NUM_CH];
-	int64_t i_pa[NUM_SIG];	/* photodiode currents in picoamps */
+	int64_t i_pa[NUM_SIG]; /* photodiode currents in picoamps */
 };
 
 static int measure(struct measurement *m)
@@ -195,33 +184,27 @@ static void print_csv_header(void)
 
 static void print_csv(int64_t t_ms, const struct measurement *m)
 {
-	int32_t pos = 0;
-
-	(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
-
 	printk("%" PRId64 ",%" PRId32, t_ms, m->uv[VREF_IDX]);
 	for (size_t i = 1; i < NUM_CH; i++) {
 		printk(",%" PRId32, m->uv[i]);
 	}
-	for (size_t s = 0; s < NUM_SIG; s++) {
-		printk(",%" PRId64, m->i_pa[s]);
-	}
+	// for (size_t s = 0; s < NUM_SIG; s++) {
+	// 	printk(",%" PRId64, m->i_pa[s]);
+	// }
+	printk("\n");
 }
 
 static void print_debug(const struct measurement *m)
 {
-	int32_t pos = 0;
-
-	(void)stepper_ctrl_get_actual_position(stepper_ctrl, &pos);
-
 	printk("# DEBUG Vref: raw=%d  %d uV\n", (int)m->raw[VREF_IDX],
 	       (int)m->uv[VREF_IDX]);
 	for (size_t s = 0; s < NUM_SIG; s++) {
-		printk("# DEBUG Vo%d: raw=%d  %d uV | Vo-Vref=%d uV | "
-		       "I=%" PRId64 " pA\n",
-		       (int)(s + 1), (int)m->raw[1 + s], (int)m->uv[1 + s],
+		printk("# DEBUG Vo%d: raw=%d  %d uV |"
+		       " I=%" PRId64 " pA\n",
+		       (int)(s + 1), (int)m->raw[1 + s],
 		       (int)(m->uv[1 + s] - m->uv[VREF_IDX]), m->i_pa[s]);
 	}
+	printk("\n");
 }
 
 /* ------------------------------------------------------------------ */
@@ -277,8 +260,7 @@ int main(void)
 		struct cmd_msg msg;
 
 		/* Waiting for a command doubles as the sampling timer: if no
-		 * command arrives before next_ms, we take a sample. Stepper
-		 * moves are non-blocking, so sampling continues during motion. */
+		 * command arrives before next_ms, we take a sample. */
 		if (k_msgq_get(&cmd_q, &msg, K_TIMEOUT_ABS_MS(next_ms)) == 0) {
 			handle_cmd(&msg);
 			continue;

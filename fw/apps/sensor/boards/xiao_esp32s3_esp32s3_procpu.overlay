@@ -1,27 +1,12 @@
 /*
  * XIAO ESP32-S3 pin usage (see seeed_xiao_connector.dtsi for D-number to GPIO):
  *
- *   D0  A4988 STEP          D8  SCLK  -> ADS1256 SCLK
- *   D1  A4988 DIR           D9  MISO  <- ADS1256 DOUT
  *   D10 MOSI -> ADS1256 DIN  D4  CS   -> ADS1256 CS
  *   D5  DRDY <- ADS1256 DRDY
  *
  * ADS1256 inputs: AIN0 = Vref, AIN1..AIN7 = photodiode amp outputs, AINCOM = GND.
  * Tie ADS1256 RESET and SYNC/PDWN high.
  */
-
-/ {
-	aliases {
-		stepper-ctrl = &step_dir_motion_control;
-	};
-
-	step_dir_motion_control: motion-controller {
-		compatible = "zephyr,gpio-step-dir-stepper-ctrl";
-		step-gpios = <&xiao_d 0 GPIO_ACTIVE_HIGH>;
-		dir-gpios = <&xiao_d 1 GPIO_ACTIVE_HIGH>;
-		invert-direction;
-	};
-};
 
 /* The console is the USB serial port; free D6/D7 (UART0) and D4/D5 (I2C0). */
 &uart0 {
