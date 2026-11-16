@@ -33,8 +33,8 @@ BACKEND = (cv2.CAP_DSHOW if sys.platform == "win32"
            else cv2.CAP_V4L2 if sys.platform.startswith("linux") else cv2.CAP_ANY)
 
 FIELDS = [  # (name, label, type)
-("rows", "Rows", int), ("cols", "Columns", int), ("cam", "Camera", lambda s: int(s.split(":")[0])),
-("out", "Output folder", str), ("device", "Device Name", str), ("length", "Snapshot Window", int), ("prefix", "File prefix", str),
+("rows", "Rows", int), ("cols", "Columns", int), ("cam0", "Camera 0 Index", lambda s: int(s.split(":")[0])), ("cam1", "Camera 1 Index", lambda s: int(s.split(":")[0])),
+("out", "Output folder", str), ("mcu", "MCU Name", str), ("length", "Snapshot Window", int), ("prefix", "File prefix", str),
 ("width", "Width [px]", int), ("height", "Height [px]", int), ("fps", "FPS", int), ("fourcc", "FourCC", str),
 ]
 
@@ -47,7 +47,7 @@ def list_cams(probe=False, n=6):
         if found:
             return found
     except Exception:
-        pass
+        print("Exception while listing cameras")
     found = []
     for i in range(n if probe else 0):
         cap = cv2.VideoCapture(i, BACKEND)
@@ -86,20 +86,20 @@ def setup_dialog(defaults):
     for i, (name, label, _) in enumerate(FIELDS):
         ctk.CTkLabel(frm, font=font, text=label, anchor="w").grid(row=i, column=0, sticky="w", pady=4, padx=(0, 10))
         vars_[name] = ctk.StringVar(value=str(defaults[name]))
-        if name == "cam":
+        if name == "cam0" or name == "cam1":
             box = ctk.CTkComboBox(frm, font=font, dropdown_font=font, variable=vars_[name], width=W, values=[""])
             box.grid(row=i, column=1, pady=4)
 
-            def detect(box=box, probe=True):
+            def detect(box=box, probe=True, name=name):
                 root.configure(cursor="watch"); root.update()
                 cams = list_cams(probe)
                 root.configure(cursor="")
                 if cams:
                     box.configure(values=[cam_label(*c) for c in cams])
-                    vars_["cam"].set(cam_label(*pick_cam(cams, defaults)))
+                    vars_[name].set(cam_label(*pick_cam(cams, defaults)))
                 elif probe:
                     messagebox.showwarning("Grid capture", "No cameras found")
-            detect(probe=False)
+            detect(probe=False, name=name)
             ctk.CTkButton(frm, font=font, text="Refresh", width=80, command=detect).grid(row=i, column=2, padx=(8, 0))
         elif name == "fourcc":
             ctk.CTkComboBox(frm, font=font, dropdown_font=font, variable=vars_[name], width=W,
@@ -115,8 +115,10 @@ def setup_dialog(defaults):
         try:
             for name, _, typ in FIELDS:
                 result[name] = typ(vars_[name].get().strip())
-            cam_text = vars_["cam"].get()
-            result["cam_name"] = cam_text.split(":", 1)[1].strip() if ":" in cam_text else ""
+            cam0_text = vars_["cam0"].get()
+            cam1_text = vars_["cam1"].get()
+            result["cam0_name"] = cam0_text.split(":", 1)[1].strip() if ":" in cam0_text else ""
+            result["cam1_name"] = cam1_text.split(":", 1)[1].strip() if ":" in cam1_text else ""
             assert result["rows"] > 0 and result["cols"] > 0, "rows and columns must be > 0"
             assert result["out"] and result["prefix"], "output folder and prefix are required"
         except (ValueError, AssertionError) as e:
