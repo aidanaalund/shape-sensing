@@ -35,8 +35,8 @@ def main():
         help="Duration of sensor data when a snapshot is started (default: 10)")
     ap.add_argument("--rows", type=int, help="# of rows in grid (default: 5)")
     ap.add_argument("--cols", type=int, help="# of columns in grid (default: 5)")
-    ap.add_argument("--cam0", type=int, help="OpenCV camera for camera 0 (default: None)")
-    ap.add_argument("--cam1", type=int, help="OpenCV camera for camera 1 (default: None)")
+    ap.add_argument("--cam0", type=int, help="OpenCV camera for the left camera (default: None)")
+    ap.add_argument("--cam1", type=int, help="OpenCV camera for the right camera (default: None)")
     ap.add_argument("--out", type=str, help="Output directory (default: ../data/experimental)")
     ap.add_argument("--prefix", type=str, help="Image format (default: img)")
     ap.add_argument("--width", type=int, help="# of horizontal pixels (default: 1920px)")
@@ -81,9 +81,8 @@ def main():
     print(f"{done.sum()} of {done.size} positions already saved in {out_cv}")
 
     cap0 = cam.open_cam(a.cam0, a.width, a.height, a.fps, a.fourcc)
-    cap1 = cam.open_cam(a.cam0, a.width, a.height, a.fps, a.fourcc)
-    win0 = "Grid Capture (0)"
-    win1 = "Grid Capture (1)"
+    cap1 = cam.open_cam(a.cam1, a.width, a.height, a.fps, a.fourcc)
+    win = "Grid Capture"
     msg, msg_t = "", 0.0
 
     mcu = None
@@ -102,15 +101,14 @@ def main():
             if not ok0 or not ok1:
                 print("Dropped frame")
                 continue
-            vis0 = cam.draw(frame0, done, pos, msg if time.time() - msg_t < 2 else "")
-            vis1 = cam.draw(frame1, done, pos, msg if time.time() - msg_t < 2 else "")
-            scale0 = min(1.0, 1600 / vis0.shape[1])
-            scale1 = min(1.0, 1600 / vis1.shape[1])
-            cv2.imshow(win0, cv2.resize(vis0, None, fx=scale0, fy=scale0))
-            cv2.imshow(win1, cv2.resize(vis1, None, fx=scale1, fy=scale1))
+            scaley = min(1.0, 1200 / (frame0.shape[0] + frame1.shape[0]))
+            scalex = min(1.0, 1400 / (frame0.shape[1] + frame1.shape[1]))
+            combined = cv2.resize(cv2.hconcat([frame0,frame1]), None, fx=scalex, fy=scaley)
+            im = cam.draw(combined, done, pos, msg if time.time() -msg_t < 2 else "")
+            cv2.imshow(win, im)
             k = cv2.waitKeyEx(1)
-            if cv2.getWindowProperty(win0, cv2.WND_PROP_VISIBLE) < 1 or cv2.getWindowProperty(win1, cv2.WND_PROP_VISIBLE) < 1:
-                break   # window closed with X
+            if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1: # window closed with X
+                break
             if k == -1:
                 continue
             ch = chr(k & 0xFF).lower() if k < 256 else ""
@@ -120,22 +118,24 @@ def main():
                 if mcu and mcu.collecting:
                     msg, msg_t = "snapshot still running", time.time()
                     continue
-                name = cam.fname(a.prefix, pos[0], pos[1], a.rows, a.cols)
+                name = Path(cam.fname(a.prefix, pos[0], pos[1], a.rows, a.cols))
+                name_l = name.with_stem(name.stem+"_l")
+                name_r = name.with_stem(name.stem+"_r")
                 # The sensor csv shares the image's name, e.g. img_0_1.jpg -> img_0_1.csv
                 sensor_name = ""
                 if mcu:
-                    sensor_name = Path(name).with_suffix(".csv").name
+                    sensor_name = name.with_suffix(".csv").name
                     mcu.start_snapshot(out_sensor / sensor_name, a.length)
-                cv2.imwrite(str(out_cv / name), frame0)
-                log.writerow([name, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
-                              a.cam, frame0.shape[1], frame0.shape[0], sensor_name])
-                cv2.imwrite(str(out_cv / name), frame1)
-                log.writerow([name, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
-                              a.cam, frame1.shape[1], frame1.shape[0], sensor_name])
+                cv2.imwrite(str(out_cv / name_l), frame0)
+                log.writerow([name_l, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
+                              a.cam0, frame0.shape[1], frame0.shape[0], sensor_name])
+                cv2.imwrite(str(out_cv / name_r), frame1)
+                log.writerow([name_r, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
+                              a.cam1, frame1.shape[1], frame1.shape[0], sensor_name])
                 log_f.flush()
                 done[pos[0], pos[1]] = True
-                print("Saved", name)
-                msg, msg_t = f"saved {name}", time.time()
+                print("Saved position")
+                msg, msg_t = f"saved {sensor_name}", time.time()
                 nxt = cam.next_empty(done, pos)
                 if nxt is None:
                     print("All positions saved")
