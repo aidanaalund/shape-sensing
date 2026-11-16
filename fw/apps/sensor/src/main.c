@@ -75,13 +75,6 @@ static void post_cmd(enum cmd c, int16_t arg)
 static const struct device *const console_dev =
 	DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
-static void print_help(void)
-{
-	printk("# Commands:\n"
-	       "# p:	pause/resume CSV streaming\n"
-	       "# d:	debug print\n");
-}
-
 static void input_thread(void *a, void *b, void *c)
 {
 	char num[4];	/* up to 3 digits + NUL */
@@ -116,12 +109,9 @@ static void input_thread(void *a, void *b, void *c)
 		} else if (ch == 'p') {
 			n = 0;
 			post_cmd(CMD_TOGGLE_STREAM, 0);
-		} else if (ch == 'd') {
+		} else if (ch == 'o') {
 			n = 0;
 			post_cmd(CMD_DEBUG, 0);
-		} else if (ch == '?') {
-			n = 0;
-			print_help();
 		} else {
 			n = 0; /* unknown key: drop any partial number */
 		}
@@ -251,7 +241,6 @@ int main(void)
 		return 0;
 	}
 
-	print_help();
 	print_csv_header();
 
 	int64_t next_ms = k_uptime_get();

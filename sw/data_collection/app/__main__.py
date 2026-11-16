@@ -31,8 +31,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--device", type=str,
         help="Device name/path. Windows users, check Device Manager. (default: /dev/ttyACM0)")
-    ap.add_argument("--length", type=str,
-        help="Duration of sensor data when a snapshot is started (default: 5)")
+    ap.add_argument("--length", type=float,
+        help="Duration of sensor data when a snapshot is started (default: 10)")
     ap.add_argument("--rows", type=int, help="# of rows in grid (default: 5)")
     ap.add_argument("--cols", type=int, help="# of columns in grid (default: 5)")
     ap.add_argument("--cam", type=int, help="OpenCV camera index (default: 0)")
@@ -47,7 +47,7 @@ def main():
 
     # defaults < last used settings < command line; the setup window shows the result
     cfg = {"rows": 5, "cols": 5, "cam": 0, "cam_name": "", "out": "../data/experimental", "prefix": "img",
-        "width": 1280, "height": 720, "fps": 30, "fourcc": "MJPG", "device": "/dev/ttyACM0", "length": 5}
+        "width": 1280, "height": 720, "fps": 30, "fourcc": "MJPG", "device": "/dev/ttyACM0", "length": 10}
     try:
         cfg.update(json.loads(SETTINGS_FILE.read_text()))
     except (OSError, ValueError):
@@ -71,7 +71,7 @@ def main():
     log = csv.writer(log_f)
     device = a.device
     if new_log:
-        log.writerow(["file", "row", "col", "timestamp", "cam", "width", "height"])
+        log.writerow(["file", "row", "col", "timestamp", "cam", "width", "height", "sensor_file"])
 
     done = np.array([[(out_cv / cam.fname(a.prefix, r, c, a.rows, a.cols)).exists() for c in range(a.cols)]
                      for r in range(a.rows)])
@@ -82,15 +82,15 @@ def main():
     win = "grid capture"
     msg, msg_t = "", 0.0
 
-    # TODO: start taking keyboard input and parsing it
-    # TODO: allow for 'snapshots'
-    try:      
-        device = a.device
+    mcu = None
+    out_sensor = out / "sensor_data"
+    try:
         try:
-            esp.begin_communication(device, out / "sensor_data")
+            mcu = esp.Mcu(device)
+            print(f"Connected to {device}!")
         except serial.serialutil.SerialException:
             print(f"ERROR: Couldn't find/open {device}. Check if the device is plugged in or if the correct name is used.")
-            print(f"Connected to {device}!")
+            print("Continuing without sensor data.")
 
         while True:
             ok, frame = cap.read()
@@ -109,10 +109,18 @@ def main():
             if ch == "q" or k == 27:
                 break
             elif ch == " ":
+                if mcu and mcu.collecting:
+                    msg, msg_t = "snapshot still running", time.time()
+                    continue
                 name = cam.fname(a.prefix, pos[0], pos[1], a.rows, a.cols)
+                # The sensor csv shares the image's name, e.g. img_0_1.jpg -> img_0_1.csv
+                sensor_name = ""
+                if mcu:
+                    sensor_name = Path(name).with_suffix(".csv").name
+                    mcu.start_snapshot(out_sensor / sensor_name, a.length)
                 cv2.imwrite(str(out_cv / name), frame)
                 log.writerow([name, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
-                              a.cam, frame.shape[1], frame.shape[0]])
+                              a.cam, frame.shape[1], frame.shape[0], sensor_name])
                 log_f.flush()
                 done[pos[0], pos[1]] = True
                 print("saved", name)
@@ -133,12 +141,16 @@ def main():
                 pos[0] = max(0, pos[0] - 1)
             elif k == KEY_DOWN or ch == "s":
                 pos[0] = min(a.rows - 1, pos[0] + 1)
+            elif (ch == "p" or ch == "o") and mcu:
+                mcu.send_cmd(ch)
             elif ch == "c":
                 cap.set(cv2.CAP_PROP_SETTINGS, 1)
     except KeyboardInterrupt:
         print("Interrupted")
     finally:
         cap.release()
+        if mcu:
+            mcu.close()
         log_f.close()
         cv2.destroyAllWindows()
     if not done.all():
