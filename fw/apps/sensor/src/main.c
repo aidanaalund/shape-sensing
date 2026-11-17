@@ -1,16 +1,14 @@
 /*
- * Photodiode transimpedance amplifier readout
+ * Photodiode amplifier sampler
  * XIAO ESP32-S3 + ADS1256 / Zephyr
  *
  *   p		pause / resume CSV streaming
  *   d		debug print (raw readings, for calibrating the photodiodes)
- *   ?		help
  *
- * ADS1256 channels (single-ended vs AINCOM):
+ * ADS1256 channels:
  * AIN0 = Vref, AIN1..AIN3 = Vo1..Vo7 (seven photodiode amplifier outputs) OR AIN1..AIN7 = Vo1..Vo7 (seven outputs)
  *
- * Periodic CSV output; all other output lines start with '#' so they are easy
- * to filter out when parsing the CSV.
+ * Output is CSV-formatted; all other output lines start with '#'.
  */
 
 #include <errno.h>
@@ -32,14 +30,14 @@
 /* Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-#define DIV_NUM 25  /* Output voltage divider (10k + 15k) */
-#define DIV_DEN 15  /* Output voltage divider top (15k) */
-#define R1_OHMS 150000LL /* Feedback resistor */
+#define DIV_NUM 25 // Output voltage divider (10k + 15k)
+#define DIV_DEN 15 // Output voltage divider top (15k)
+#define R1_OHMS 150000LL // Feedback resistor
 
-#define SAMPLE_PERIOD_MS 500 /* "y" Hz = 1000 / this */
-#define ADS_DRATE ADS1256_DRATE_60SPS
+#define SAMPLE_PERIOD_MS 200 // 5/s
+#define ADS_DRATE ADS1256_DRATE_60SPS // 30 or 50 might help
 #define ADS_PGA ADS1256_PGA_1
-#define ADS_BUFFER false
+#define ADS_BUFFER false // TODO: If AIN0 is < 3V, use this.
 
 #define INPUT_POLL_MS 5
 
@@ -77,7 +75,6 @@ static const struct device *const console_dev =
 
 static void input_thread(void *a, void *b, void *c)
 {
-	char num[4];	/* up to 3 digits + NUL */
 	size_t n = 0;
 
 	ARG_UNUSED(a);
@@ -93,27 +90,17 @@ static void input_thread(void *a, void *b, void *c)
 		}
 
 		if (ch == '\n' && n == 0) {
-			continue; /* second half of a CRLF */
+			continue; // CRLF
 		}
 
-		if (ch >= '0' && ch <= '9') {
-			if (n < sizeof(num) - 1) {
-				num[n++] = (char)ch;
-				printk("%c", ch);
-			}
-		} else if (ch == 0x08 || ch == 0x7f) {
-			if (n > 0) {
-				n--;
-				printk("\b \b");
-			}
-		} else if (ch == 'p') {
+		if (ch == 'p') {
 			n = 0;
 			post_cmd(CMD_TOGGLE_STREAM, 0);
 		} else if (ch == 'o') {
 			n = 0;
 			post_cmd(CMD_DEBUG, 0);
 		} else {
-			n = 0; /* unknown key: drop any partial number */
+			n = 0; // unknown key
 		}
 	}
 }
@@ -160,10 +147,12 @@ static int measure(struct measurement *m)
 }
 
 /* ------------------------------------------------------------------ */
+/* Prints and handlers                                                */
+/* ------------------------------------------------------------------ */
 
 static void print_csv_header(void)
 {
-	printk("t_ms,vref_uv");
+	printk("#t_ms,vref_uv");
 	for (int i = 1; i <= NUM_SIG; i++) {
 		printk(",vo%d_uv", i);
 	}
@@ -178,9 +167,9 @@ static void print_csv(int64_t t_ms, const struct measurement *m)
 	for (size_t i = 1; i < NUM_CH; i++) {
 		printk(",%" PRId32, m->uv[i]);
 	}
-	// for (size_t s = 0; s < NUM_SIG; s++) {
-	// 	printk(",%" PRId64, m->i_pa[s]);
-	// }
+	for (size_t s = 0; s < NUM_SIG; s++) {
+		printk(",%" PRId64, m->i_pa[s]);
+	}
 	printk("\n");
 }
 
@@ -196,10 +185,6 @@ static void print_debug(const struct measurement *m)
 	}
 	printk("\n");
 }
-
-/* ------------------------------------------------------------------ */
-/* Main                                                               */
-/* ------------------------------------------------------------------ */
 
 static void handle_debug(void)
 {
@@ -248,8 +233,7 @@ int main(void)
 	while (1) {
 		struct cmd_msg msg;
 
-		/* Waiting for a command doubles as the sampling timer: if no
-		 * command arrives before next_ms, we take a sample. */
+		// If no command arrives before next_ms, we take a sample.
 		if (k_msgq_get(&cmd_q, &msg, K_TIMEOUT_ABS_MS(next_ms)) == 0) {
 			handle_cmd(&msg);
 			continue;
