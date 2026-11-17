@@ -1,0 +1,7 @@
+customtkinter==6.0.0
+cv2_enumerate_cameras==1.4.0
+darkdetect==0.8.0
+numpy==2.5.4
+opencv-python==5.0.0.93
+packaging==26.3
+pyserial==3.5
