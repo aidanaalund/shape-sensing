@@ -34,10 +34,10 @@
 #define DIV_DEN 15 // Output voltage divider top (15k)
 #define R1_OHMS 150000LL // Feedback resistor
 
-#define SAMPLE_PERIOD_MS 200 // 5/s
+#define SAMPLE_PERIOD_MS 250 // 5/s
 #define ADS_DRATE ADS1256_DRATE_60SPS // 30 or 50 might help
 #define ADS_PGA ADS1256_PGA_1
-#define ADS_BUFFER false // TODO: If AIN0 is < 3V, use this.
+#define ADS_BUFFER true
 
 #define INPUT_POLL_MS 5
 
