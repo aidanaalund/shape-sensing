@@ -37,6 +37,13 @@ class Mcu:
     def collecting(self) -> bool:
         return self._file is not None
 
+    @property
+    def remaining(self) -> float:
+        """Seconds left in the running snapshot (0 if none)."""
+        return max(0.0, self._deadline - time.monotonic()) if self._file is not None else 0.0
+
+    last_rows = 0  # row count of the most recently finished snapshot
+
     def start_snapshot(self, path, duration: float) -> bool:
         """Begin writing readings to `path` for `duration` seconds.
         Returns False if a snapshot is already running."""
@@ -55,6 +62,7 @@ class Mcu:
 
     def _end_snapshot(self):  # call with lock held
         self._file.close()
+        self.last_rows = self._rows
         print(f"snapshot done ({self._rows} rows)")
         self._file = self._writer = None
 

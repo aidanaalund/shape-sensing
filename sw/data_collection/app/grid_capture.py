@@ -25,6 +25,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 import cv2
 from cv2_enumerate_cameras import enumerate_cameras
+from serial.tools.list_ports import comports
 
 FONT_SIZE = 24
 
@@ -33,8 +34,8 @@ BACKEND = (cv2.CAP_DSHOW if sys.platform == "win32"
            else cv2.CAP_V4L2 if sys.platform.startswith("linux") else cv2.CAP_ANY)
 
 FIELDS = [  # (name, label, type)
-("rows", "Rows", int), ("cols", "Columns", int), ("cam0", "Camera 0 Index", lambda s: int(s.split(":")[0])), ("cam1", "Camera 1 Index", lambda s: int(s.split(":")[0])),
-("out", "Output folder", str), ("mcu", "MCU Name", str), ("length", "Snapshot Window", int), ("prefix", "File prefix", str),
+("rows", "Rows", int), ("cols", "Columns", int), ("cam0", "Left Camera", lambda s: int(s.split(":")[0])), ("cam1", "Right Camera", lambda s: int(s.split(":")[0])),
+("out", "Output folder", str), ("mcu", "MCU Port", lambda s: s.split(":")[0].strip()), ("length", "Snapshot Length", int), ("prefix", "File prefix", str),
 ("width", "Width [px]", int), ("height", "Height [px]", int), ("fps", "FPS", int), ("fourcc", "FourCC", str),
 ]
 
@@ -59,6 +60,16 @@ def list_cams(probe=False, n=6):
 
 def cam_label(i, name):
     return f"{i}: {name}"
+
+
+def list_ports():
+    """[(device, description)] of serial ports: COMx on Windows, /dev/tty* on Linux/macOS."""
+    try:
+        # Linux lists dozens of phantom /dev/ttyS* ports with description "n/a"; real USB ones have one
+        return [(p.device, p.description) for p in sorted(comports()) if p.description != "n/a"]
+    except Exception:
+        print("Exception while listing serial ports")
+        return []
 
 
 def pick_cam(cams, cfg):
@@ -101,6 +112,23 @@ def setup_dialog(defaults):
                     messagebox.showwarning("Grid capture", "No cameras found")
             detect(probe=False, name=name)
             ctk.CTkButton(frm, font=font, text="Refresh", width=80, command=detect).grid(row=i, column=2, padx=(8, 0))
+        elif name == "mcu":
+            box = ctk.CTkComboBox(frm, font=font, dropdown_font=font, variable=vars_[name], width=W, values=[""])
+            box.grid(row=i, column=1, pady=4)
+
+            def detect_ports(box=box):
+                ports = list_ports()
+                labels = [f"{dev}: {desc}" for dev, desc in ports]
+                box.configure(values=labels)
+                current = vars_["mcu"].get().split(":")[0].strip()
+                match = next((l for (dev, _), l in zip(ports, labels) if dev == current), None)
+                # keep the saved port if it's still present, else the first one found
+                if match or labels:
+                    vars_["mcu"].set(match or labels[0])
+                else:
+                    vars_["mcu"].set(current)  # nothing found: leave editable text
+            detect_ports()
+            ctk.CTkButton(frm, font=font, text="Refresh", width=80, command=detect_ports).grid(row=i, column=2, padx=(8, 0))
         elif name == "fourcc":
             ctk.CTkComboBox(frm, font=font, dropdown_font=font, variable=vars_[name], width=W,
                 values=["MJPG", "YUY2"]).grid(row=i, column=1, pady=4)

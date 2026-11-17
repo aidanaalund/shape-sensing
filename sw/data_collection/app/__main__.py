@@ -7,6 +7,7 @@
 import argparse
 import csv
 import json
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -29,8 +30,8 @@ def main():
     # Arguments
     ap = argparse.ArgumentParser(description=__doc__, 
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--device", type=str,
-        help="MCU name/path. Windows users: check Device Manager. (default: /dev/ttyACM0)")
+    ap.add_argument("--device", dest="mcu", type=str,
+        help="MCU serial port, e.g. COM3 or /dev/ttyACM0 (default: last used)")
     ap.add_argument("--length", type=float,
         help="Duration of sensor data when a snapshot is started (default: 10)")
     ap.add_argument("--rows", type=int, help="# of rows in grid (default: 5)")
@@ -48,7 +49,7 @@ def main():
 
     # defaults < last used settings < command line; the setup window shows the result
     cfg = {"rows": 5, "cols": 5, "cam0": 0, "cam1": 1, "cam0_name": "", "cam1_name": "", "out": "../data/experimental", "prefix": "img",
-        "width": 1920, "height": 1080, "fps": 30, "fourcc": "MJPG", "mcu": "/dev/ttyACM0", "length": 10}
+        "width": 1920, "height": 1080, "fps": 30, "fourcc": "MJPG", "mcu": "COM3" if sys.platform == "win32" else "/dev/ttyACM0", "length": 10}
     try:
         cfg.update(json.loads(SETTINGS_FILE.read_text()))
     except (OSError, ValueError):
@@ -84,13 +85,14 @@ def main():
     cap1 = cam.open_cam(a.cam1, a.width, a.height, a.fps, a.fourcc)
     win = "Grid Capture"
     msg, msg_t = "", 0.0
+    was_collecting = False
 
     mcu = None
     out_sensor = out / "sensor_data"
     try:
         try:
             mcu = esp.Mcu(mcu_name)
-            print(f"Connected to {mcu_name}!")
+            print(f"Connected to {mcu_name}")
         except serial.serialutil.SerialException:
             print(f"ERROR: Couldn't find/open {mcu_name}. Check if the device is plugged in or if the correct name is used.")
             print("Continuing without sensor data.")
@@ -104,7 +106,15 @@ def main():
             scaley = min(1.0, 1200 / (frame0.shape[0] + frame1.shape[0]))
             scalex = min(1.0, 1400 / (frame0.shape[1] + frame1.shape[1]))
             combined = cv2.resize(cv2.hconcat([frame0,frame1]), None, fx=scalex, fy=scaley)
-            im = cam.draw(combined, done, pos, msg if time.time() -msg_t < 2 else "")
+            collecting = bool(mcu and mcu.collecting)
+            if was_collecting and not collecting:  # snapshot just finished
+                msg, msg_t = f"snapshot done ({mcu.last_rows} rows) - ready", time.time() + 2  # shown ~4s
+            was_collecting = collecting
+            if collecting:  # persistent while recording
+                shown = f"RECORDING {mcu.remaining:.1f}s - wait"
+            else:
+                shown = msg if time.time() - msg_t < 2 else ""
+            im = cam.draw(combined, done, pos, shown)
             cv2.imshow(win, im)
             k = cv2.waitKeyEx(1)
             if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1: # window closed with X
@@ -116,8 +126,7 @@ def main():
                 break
             elif ch == " ":
                 if mcu and mcu.collecting:
-                    msg, msg_t = "snapshot still running", time.time()
-                    continue
+                    continue  # countdown is already on screen
                 name = Path(cam.fname(a.prefix, pos[0], pos[1], a.rows, a.cols))
                 name_l = name.with_stem(name.stem+"_l")
                 name_r = name.with_stem(name.stem+"_r")
