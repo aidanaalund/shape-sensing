@@ -65,7 +65,7 @@ def main():
     SETTINGS_FILE.write_text(json.dumps(cfg, indent=1))
     a = argparse.Namespace(**cfg)
 
-    out = Path(a.out) / f"{datetime.now().isoformat(timespec="seconds")}"
+    out = Path(a.out) / f"{datetime.now().isoformat(timespec="hours")}"
     out_cv = out / "grid_data"
     out_cv.mkdir(parents=True, exist_ok=True)
     log_path = out_cv / "log.csv"
