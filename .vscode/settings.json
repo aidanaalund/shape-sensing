@@ -1,9 +1,0 @@
-{
-    "nrf-connect.applications": [
-        "${workspaceFolder}/sw/adc_dt"
-    ],
-    "cmake.sourceDirectory": "C:/Users/alagi/shape-sensing/fw/adc_dt",
-    "terminal.integrated.defaultProfile.windows": "Zephyr IDE Terminal",
-    "C_Cpp.default.compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
-    "cmake.configureOnOpen": false
-}
