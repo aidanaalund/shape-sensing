@@ -26,6 +26,19 @@ except ImportError:
 SETTINGS_FILE = Path.cwd() / ".grid_capture.json" 
 KEY_LEFT, KEY_UP, KEY_RIGHT, KEY_DOWN = 2424832, 2490368, 2555904, 2621440 # cv2.waitKeyEx
 
+
+def placeholder(camera, other):
+    """Black frame with a 'disconnected' notice, sized to match the other camera's frame
+    (hconcat needs equal heights) or this camera's last good frame."""
+    shape = other.shape if other is not None else camera.shape
+    img = np.zeros(shape, np.uint8)
+    scale = shape[1] / 1000
+    cv2.putText(img, f"{camera.label.upper()} DISCONNECTED", (int(40 * scale), shape[0] // 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.5 * scale, (0, 0, 255), max(1, int(3 * scale)))
+    cv2.putText(img, "reconnecting...", (int(40 * scale), shape[0] // 2 + int(60 * scale)),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2 * scale, (0, 0, 255), max(1, int(3 * scale)))
+    return img
+
 def main():
     # Arguments
     ap = argparse.ArgumentParser(description=__doc__, 
@@ -81,8 +94,8 @@ def main():
     pos = [0, 0] if not done[0, 0] else list(cam.next_empty(done, (0, 0)) or (0, 0))
     print(f"{done.sum()} of {done.size} positions already saved in {out_cv}")
 
-    cap0 = cam.open_cam(a.cam0, a.width, a.height, a.fps, a.fourcc)
-    cap1 = cam.open_cam(a.cam1, a.width, a.height, a.fps, a.fourcc)
+    cap0 = cam.Camera(a.cam0, a.cam0_name, a.width, a.height, a.fps, a.fourcc, label="left cam")
+    cap1 = cam.Camera(a.cam1, a.cam1_name, a.width, a.height, a.fps, a.fourcc, label="right cam")
     win = "Grid Capture"
     msg, msg_t = "", 0.0
     was_collecting = False
@@ -98,11 +111,13 @@ def main():
             print("Continuing without sensor data.")
 
         while True:
-            ok0, frame0 = cap0.read()
-            ok1, frame1 = cap1.read()
-            if not ok0 or not ok1:
-                print("Dropped frame")
-                continue
+            # Frames come from the reader threads, so a dead camera can't block this loop
+            frame0, frame1 = cap0.latest(), cap1.latest()
+            cams_ok = frame0 is not None and frame1 is not None
+            if frame0 is None:
+                frame0 = placeholder(cap0, frame1)
+            if frame1 is None:
+                frame1 = placeholder(cap1, frame0)
             scaley = min(1.0, 1200 / (frame0.shape[0] + frame1.shape[0]))
             scalex = min(1.0, 1400 / (frame0.shape[1] + frame1.shape[1]))
             combined = cv2.resize(cv2.hconcat([frame0,frame1]), None, fx=scalex, fy=scaley)
@@ -116,7 +131,7 @@ def main():
                 shown = msg if time.time() - msg_t < 2 else ""
             im = cam.draw(combined, done, pos, shown)
             cv2.imshow(win, im)
-            k = cv2.waitKeyEx(1)
+            k = cv2.waitKeyEx(15)  # always reached, so q / X work even with a camera down
             if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1: # window closed with X
                 break
             if k == -1:
@@ -127,6 +142,9 @@ def main():
             elif ch == " ":
                 if mcu and mcu.collecting:
                     continue  # countdown is already on screen
+                if not cams_ok:  # never save half a pair
+                    msg, msg_t = "camera disconnected - not saved", time.time()
+                    continue
                 name = Path(cam.fname(a.prefix, pos[0], pos[1], a.rows, a.cols))
                 name_l = name.with_stem(name.stem+"_l")
                 name_r = name.with_stem(name.stem+"_r")
@@ -137,10 +155,10 @@ def main():
                     mcu.start_snapshot(out_sensor / sensor_name, a.length)
                 cv2.imwrite(str(out_cv / name_l), frame0)
                 log.writerow([name_l, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
-                              a.cam0, frame0.shape[1], frame0.shape[0], sensor_name])
+                              cap0.idx, frame0.shape[1], frame0.shape[0], sensor_name])
                 cv2.imwrite(str(out_cv / name_r), frame1)
                 log.writerow([name_r, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
-                              a.cam1, frame1.shape[1], frame1.shape[0], sensor_name])
+                              cap1.idx, frame1.shape[1], frame1.shape[0], sensor_name])
                 log_f.flush()
                 done[pos[0], pos[1]] = True
                 print("Saved position")
@@ -164,8 +182,8 @@ def main():
             elif (ch == "p" or ch == "o") and mcu:
                 mcu.send_cmd(ch)
             elif ch == "c":
-                cap0.set(cv2.CAP_PROP_SETTINGS, 1)
-                cap1.set(cv2.CAP_PROP_SETTINGS, 1)
+                cap0.open_settings()
+                cap1.open_settings()
     except KeyboardInterrupt:
         print("Interrupted")
     finally:

@@ -20,6 +20,8 @@ Examples:
   python grid_capture.py --rows 3 --cols 3 --cam 1 --out data/run2 --prefix pof
 """
 import sys
+import threading
+import time
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
@@ -171,18 +173,108 @@ def setup_dialog(defaults):
 
 
 def open_cam(idx, w, h, fps, fourcc):
+    """Opened cv2.VideoCapture, or None if the camera couldn't be opened."""
     cap = cv2.VideoCapture(idx, BACKEND)
+    if not cap.isOpened():
+        cap.release()
+        return None
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
     cap.set(cv2.CAP_PROP_FPS, fps)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
-    if not cap.isOpened():
-        raise SystemExit(f"camera {idx} did not open")
     print(f"cam {idx}: {cap.get(cv2.CAP_PROP_FRAME_WIDTH):.0f}x{cap.get(cv2.CAP_PROP_FRAME_HEIGHT):.0f}"
           f" @ {cap.get(cv2.CAP_PROP_FPS):.0f} fps")
     return cap
+
+
+class Camera:
+    """Reads one camera in a background thread, so a stalled or unplugged device can't freeze
+    the GUI. Keeps only the newest frame, and reopens the camera after it disconnects. A
+    replugged camera may come back at a different index, so it is looked up again by name."""
+    _all = []  # every Camera, so two cameras with the same name don't grab the same index
+
+    def __init__(self, idx, name, w, h, fps, fourcc, label="", reconnect_after=1.0, retry_every=1.0):
+        self.idx, self.name, self.label = idx, name, label or f"cam {idx}"
+        self.mode = (w, h, fps, fourcc)
+        self.shape = (h, w, 3)  # shape of the last good frame, for the placeholder image
+        self.reconnect_after = reconnect_after  # seconds of failed reads before reopening
+        self.retry_every = retry_every          # seconds between reopen attempts
+        self.cap = None
+        self._lock = threading.Lock()
+        self._frame, self._t = None, 0.0
+        self._stop = threading.Event()
+        self._settings = threading.Event()
+        Camera._all.append(self)
+        self._thread = threading.Thread(target=self._run, name=self.label, daemon=True)
+        self._thread.start()
+
+    def _candidates(self):
+        """Indices to try: the last one first, then others listed with the same name."""
+        if not self.name:
+            return [self.idx]
+        cams = list_cams()
+        if not cams:
+            return [self.idx]
+        taken = {c.idx for c in Camera._all if c is not self}
+        same = [i for i, n in cams if n == self.name and i not in taken]
+        return sorted(same, key=lambda i: i != self.idx)
+
+    def _connect(self):
+        for i in self._candidates():
+            cap = open_cam(i, *self.mode)
+            if cap is not None:
+                if i != self.idx:
+                    print(f"{self.label}: now at index {i} (was {self.idx})")
+                self.idx, self.cap = i, cap
+                print(f"{self.label}: connected")
+                return True
+        return False
+
+    def _run(self):
+        last_ok = 0.0
+        while not self._stop.is_set():
+            if self.cap is None:
+                if not self._connect():
+                    self._stop.wait(self.retry_every)
+                    continue
+                last_ok = time.time()
+            if self._settings.is_set():  # done here so only this thread touches self.cap
+                self._settings.clear()
+                self.cap.set(cv2.CAP_PROP_SETTINGS, 1)
+            ok, frame = self.cap.read()
+            now = time.time()
+            if ok:
+                last_ok = now
+                self.shape = frame.shape
+                with self._lock:
+                    self._frame, self._t = frame, now
+            elif now - last_ok > self.reconnect_after:
+                print(f"{self.label}: lost, reconnecting...")
+                self.cap.release()
+                self.cap = None
+            else:
+                self._stop.wait(0.01)  # don't busy-spin on failed reads
+
+    def latest(self, max_age=0.5):
+        """Copy of the newest frame, or None if the camera is disconnected or stalled."""
+        with self._lock:
+            if self._frame is None or time.time() - self._t > max_age:
+                return None
+            return self._frame.copy()
+
+    def open_settings(self):
+        """Open the driver settings dialog (exposure, WB, focus) on the reader thread."""
+        self._settings.set()
+
+    def release(self):
+        self._stop.set()
+        self._thread.join(timeout=2)
+        if not self._thread.is_alive() and self.cap is not None:  # else read() is wedged in the driver
+            self.cap.release()
+        if self in Camera._all:
+            Camera._all.remove(self)
 
 
 def fname(prefix, r, c, rows, cols):
