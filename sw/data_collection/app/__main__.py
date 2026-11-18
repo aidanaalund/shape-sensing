@@ -33,9 +33,7 @@ def placeholder(camera, other):
     shape = other.shape if other is not None else camera.shape
     img = np.zeros(shape, np.uint8)
     scale = shape[1] / 1000
-    cv2.putText(img, f"{camera.label.upper()} DISCONNECTED", (int(40 * scale), shape[0] // 2),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.5 * scale, (0, 0, 255), max(1, int(3 * scale)))
-    cv2.putText(img, "reconnecting...", (int(40 * scale), shape[0] // 2 + int(60 * scale)),
+    cv2.putText(img, f"{camera.label.upper()} disconnected, attempting to reconnect", (int(40 * scale), shape[0] // 2 + int(60 * scale)),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.2 * scale, (0, 0, 255), max(1, int(3 * scale)))
     return img
 
