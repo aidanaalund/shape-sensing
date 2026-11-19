@@ -44,7 +44,7 @@ def main():
     ap.add_argument("--device", dest="mcu", type=str,
         help="MCU serial port, e.g. COM3 or /dev/ttyACM0 (default: last used)")
     ap.add_argument("--length", type=float,
-        help="Duration of sensor data when a snapshot is started (default: 10)")
+        help="Duration of sensor data when a snapshot is started (default: 5)")
     ap.add_argument("--rows", type=int, help="# of rows in grid (default: 5)")
     ap.add_argument("--cols", type=int, help="# of columns in grid (default: 5)")
     ap.add_argument("--cam0", type=int, help="OpenCV camera for the left camera (default: None)")
@@ -60,7 +60,7 @@ def main():
 
     # defaults < last used settings < command line; the setup window shows the result
     cfg = {"rows": 5, "cols": 5, "cam0": 0, "cam1": 1, "cam0_name": "", "cam1_name": "", "out": "../data/experimental", "prefix": "img",
-        "width": 1920, "height": 1080, "fps": 30, "fourcc": "MJPG", "mcu": "COM3" if sys.platform == "win32" else "/dev/ttyACM0", "length": 10}
+        "width": 1920, "height": 1080, "fps": 30, "fourcc": "MJPG", "mcu": "COM3" if sys.platform == "win32" else "/dev/ttyACM0", "length": 5}
     try:
         cfg.update(json.loads(SETTINGS_FILE.read_text()))
     except (OSError, ValueError):
