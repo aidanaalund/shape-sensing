@@ -19,13 +19,16 @@ Examples:
   python grid_capture.py --rows 5 --cols 8
   python grid_capture.py --rows 3 --cols 3 --cam 1 --out data/run2 --prefix pof
 """
+import json
 import sys
 import threading
 import time
+from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 import cv2
+import numpy as np
 from cv2_enumerate_cameras import enumerate_cameras
 from serial.tools.list_ports import comports
 
@@ -74,28 +77,73 @@ def list_ports():
         return []
 
 
-def pick_cam(cams, cfg):
+def pick_cam(cams, idx, last_name=""):
     """Last used camera if it's still connected (matched by name), else the highest index,
     since a built-in laptop camera usually enumerates first."""
     for i, name in cams:
-        if name == cfg.get("cam_name"):
+        if last_name and name == last_name:
             return i, name
-    return cams[-1] if cams else (cfg["cam"], cfg.get("cam_name", ""))
+    return cams[-1] if cams else (idx, last_name)
+
+
+CONFIG_NAME = "config.json"  # written into every experiment folder
+# Settings restored from an experiment's config when resuming. Devices (cameras, MCU port) are
+# not restored, since they may have changed since the last session.
+RESUME_KEYS = ("rows", "cols", "prefix", "width", "height", "fps", "fourcc", "length")
+
+
+def is_saved(out, prefix, r, c, rows, cols, sensors=False):
+    """True if both camera images of a position exist (and its sensor csv, if `sensors`)."""
+    n = Path(fname(prefix, r, c, rows, cols))
+    ok = all((out / "grid_data" / n.with_stem(n.stem + s)).exists() for s in ("_l", "_r"))
+    return ok and (not sensors or (out / "sensor_data" / n.with_suffix(".csv").name).exists())
+
+
+def saved_grid(out, cfg, sensors=False):
+    """Boolean (rows, cols) array of the positions already saved in experiment folder `out`."""
+    return np.array([[is_saved(out, cfg["prefix"], r, c, cfg["rows"], cfg["cols"], sensors)
+                      for c in range(cfg["cols"])] for r in range(cfg["rows"])])
+
+
+def load_config(out):
+    """Saved config of experiment folder `out`; raises OSError/ValueError if missing or broken."""
+    return json.loads((Path(out) / CONFIG_NAME).read_text())
+
+
+def find_incomplete(root):
+    """[(folder, saved, total)] of experiments under `root` that still have empty positions,
+    newest first."""
+    found = []
+    for d in sorted(Path(root).glob("*/"), reverse=True):
+        try:
+            cfg = load_config(d)
+            done = saved_grid(d, cfg)
+        except (OSError, ValueError, KeyError):
+            continue
+        if not done.all():
+            found.append((d, int(done.sum()), done.size))
+    return found
 
 
 def setup_dialog(defaults):
     """CustomTkinter form for the capture settings. Returns a dict, or None if cancelled.
     CustomTkinter scales widgets with the system DPI automatically."""
     ctk.set_appearance_mode("system")
-    ctk.set_default_color_theme("blue")
+    ctk.set_default_color_theme("dark-blue")
     root = ctk.CTk()
-    root.geometry("360x360")
+    root.geometry("360x390")
     root.title("Grid capture setup")
     font = ctk.CTkFont(size=FONT_SIZE)
+    msg = ctk.CTkFrame(root, fg_color="transparent")
+    msg.pack(padx=1, pady=1)
     frm = ctk.CTkFrame(root, fg_color="transparent")
     frm.pack(padx=16, pady=16)
     vars_, result = {}, {}
     W = 260
+
+    warn = ctk.CTkButton(msg, font=font, text="Check README.md before starting!", fg_color="red", hover=False)
+    warn.grid(row=0, column=0, pady=4)
+    
     for i, (name, label, _) in enumerate(FIELDS):
         ctk.CTkLabel(frm, font=font, text=label, anchor="w").grid(row=i, column=0, sticky="w", pady=4, padx=(0, 10))
         vars_[name] = ctk.StringVar(value=str(defaults[name]))
@@ -109,7 +157,7 @@ def setup_dialog(defaults):
                 root.configure(cursor="")
                 if cams:
                     box.configure(values=[cam_label(*c) for c in cams])
-                    vars_[name].set(cam_label(*pick_cam(cams, defaults)))
+                    vars_[name].set(cam_label(*pick_cam(cams, defaults[name], defaults.get(name + "_name", ""))))
                 elif probe:
                     messagebox.showwarning("Grid capture", "No cameras found")
             detect(probe=False, name=name)
@@ -141,6 +189,29 @@ def setup_dialog(defaults):
                 filedialog.askdirectory(initialdir=vars_["out"].get() or ".") or vars_["out"].get())
             ).grid(row=i, column=2, padx=(8, 0))
 
+    # Resume an incomplete experiment: its saved grid settings replace the ones above
+    r = len(FIELDS)
+    ctk.CTkLabel(frm, font=font, text="Resume", anchor="w").grid(row=r, column=0, sticky="w", pady=4, padx=(0, 10))
+    vars_["resume"] = ctk.StringVar(value="")
+    resume_box = ctk.CTkComboBox(frm, font=font, dropdown_font=font, variable=vars_["resume"], width=W, values=[""])
+    resume_box.grid(row=r, column=1, pady=4)
+
+    def scan():
+        found = find_incomplete(vars_["out"].get().strip() or ".")
+        resume_box.configure(values=[""] + [f"{d}  ({n}/{t})" for d, n, t in found])
+        if found and not vars_["resume"].get():
+            vars_["resume"].set("")  # never resume unless asked
+    scan()
+
+    def browse_resume():
+        d = filedialog.askdirectory(initialdir=vars_["out"].get() or ".")
+        if d:
+            vars_["resume"].set(d)
+    rb = ctk.CTkFrame(frm, fg_color="transparent")
+    rb.grid(row=r, column=2, padx=(8, 0))
+    ctk.CTkButton(rb, font=font, text="Scan", width=60, command=scan).pack(side="left")
+    ctk.CTkButton(rb, font=font, text="Browse", width=80, command=browse_resume).pack(side="left", padx=(4, 0))
+
     def start():
         try:
             for name, _, typ in FIELDS:
@@ -149,6 +220,15 @@ def setup_dialog(defaults):
             cam1_text = vars_["cam1"].get()
             result["cam0_name"] = cam0_text.split(":", 1)[1].strip() if ":" in cam0_text else ""
             result["cam1_name"] = cam1_text.split(":", 1)[1].strip() if ":" in cam1_text else ""
+            res = vars_["resume"].get().strip()
+            if res.endswith(")") and "  (" in res:  # strip the "(saved/total)" label
+                res = res.rsplit("  (", 1)[0]
+            if res:
+                try:
+                    result.update({k: v for k, v in load_config(res).items() if k in RESUME_KEYS})
+                except (OSError, ValueError):
+                    raise AssertionError(f"no readable {CONFIG_NAME} in {res}")
+            result["resume"] = res
             assert result["rows"] > 0 and result["cols"] > 0, "rows and columns must be > 0"
             assert result["out"] and result["prefix"], "output folder and prefix are required"
         except (ValueError, AssertionError) as e:
@@ -158,7 +238,7 @@ def setup_dialog(defaults):
         root.destroy()
 
     btns = ctk.CTkFrame(frm, fg_color="transparent")
-    btns.grid(row=len(FIELDS), column=0, columnspan=3, pady=(14, 0))
+    btns.grid(row=len(FIELDS) + 1, column=0, columnspan=3, pady=(14, 0))
     ctk.CTkButton(btns, font=font, text="Start", width=100, command=start).pack(side="left", padx=6)
     ctk.CTkButton(btns, font=font, text="Cancel", width=100, fg_color="gray40", hover_color="gray30",
                   command=root.destroy).pack(side="left", padx=6)
@@ -262,7 +342,12 @@ class Camera:
         with self._lock:
             if self._frame is None or time.time() - self._t > max_age:
                 return None
-            return self._frame.copy()
+            frame = self._frame.copy()
+        if frame.ndim == 2:  # IR / grayscale cameras give 1 channel, which hconcat/colour drawing can't mix
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        elif frame.shape[2] == 1:
+            frame = cv2.cvtColor(frame[:, :, 0], cv2.COLOR_GRAY2BGR)
+        return frame
 
     def open_settings(self):
         """Open the driver settings dialog (exposure, WB, focus) on the reader thread."""
@@ -275,6 +360,27 @@ class Camera:
             self.cap.release()
         if self in Camera._all:
             Camera._all.remove(self)
+
+
+class MirrorCamera:
+    """Second 'camera' that shows another Camera's frames. For testing with one webcam, since
+    a device can't be opened twice."""
+
+    def __init__(self, src, label=""):
+        self.src, self.label = src, label
+        self.name = src.name
+
+    idx = property(lambda self: self.src.idx)
+    shape = property(lambda self: self.src.shape)
+
+    def latest(self, max_age=0.5):
+        return self.src.latest(max_age)
+
+    def open_settings(self):
+        pass
+
+    def release(self):
+        pass
 
 
 def fname(prefix, r, c, rows, cols):
@@ -309,6 +415,6 @@ def draw(frame, done, pos, msg):
     status = f"row {pos[0]}  col {pos[1]}   {done.sum()}/{done.size} saved   {msg}"
     cv2.rectangle(v, (0, v.shape[0] - 40), (v.shape[1], v.shape[0]), (0, 0, 0), -1)
     cv2.putText(v, status, (10, v.shape[0] - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-    cv2.putText(v, "SPACE save | arrows/WASD move | n next empty | c cam settings | q stop", (10, 25),
+    cv2.putText(v, "SPACE take snapshot | WASD move | n next square | q quit", (10, 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     return v
