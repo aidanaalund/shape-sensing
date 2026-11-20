@@ -74,10 +74,9 @@ class Mcu:
                 print("ERROR: lost connection to MCU")
                 break
             with self._lock:
-                # if line.startswith("#"):  # Status/log
-                #     print(line)
-                if line and self._writer:  # Data
-                    print(line) # NEW
+                if line.startswith("#"):  # Status/log
+                    print(line)
+                elif line and self._writer:  # Data
                     self._writer.writerow(dict(zip(FIELDNAMES, line.split(','))))
                     self._rows += 1
                 if self._file and time.monotonic() >= self._deadline:
