@@ -410,9 +410,29 @@ def draw(frame, done, pos, msg):
             p0 = (x0 + c * cell, y0 + r * cell)
             p1 = (p0[0] + cell - 2, p0[1] + cell - 2)
             cv2.rectangle(v, p0, p1, (0, 200, 0) if done[r, c] else (80, 80, 80), -1)
-            if (r, c) == tuple(pos):
-                cv2.rectangle(v, p0, p1, (0, 0, 255), 2)
-    status = f"row {pos[0]}  col {pos[1]}   {done.sum()}/{done.size} saved   {msg}"
+    # Crosshair through the center (0,0): lines across the whole grid, plus a tick every 5 cells
+    # along each axis so positions are easy to count at large sizes
+    cx, cy = x0 + (cols - 1) / 2 * cell + cell / 2 - 1, y0 + (rows - 1) / 2 * cell + cell / 2 - 1
+    cx, cy = round(cx), round(cy)
+    yellow = (0, 255, 255)
+    cv2.line(v, (x0 - 4, cy), (x0 + cols * cell + 2, cy), yellow, 1)
+    cv2.line(v, (cx, y0 - 4), (cx, y0 + rows * cell + 2), yellow, 1)
+    mid_r, mid_c = (rows - 1) // 2, (cols - 1) // 2
+    for k in range(0, max(rows, cols), 5):
+        for sgn in (-1, 1):
+            c, r = mid_c + sgn * k, mid_r + sgn * k
+            if 0 <= c < cols:
+                tx = x0 + c * cell + cell // 2 - 1
+                cv2.line(v, (tx, cy - 3), (tx, cy + 3), yellow, 1)
+            if 0 <= r < rows:
+                ty = y0 + r * cell + cell // 2 - 1
+                cv2.line(v, (cx - 3, ty), (cx + 3, ty), yellow, 1)
+    r, c = pos
+    p0 = (x0 + c * cell, y0 + r * cell)
+    cv2.rectangle(v, p0, (p0[0] + cell - 2, p0[1] + cell - 2), (0, 0, 255), 2)
+    # Cartesian coordinates: center is (0, 0), +x right, +y up
+    x, y = c - mid_c, mid_r - r
+    status = f"x {x:+d}  y {y:+d}   {done.sum()}/{done.size} saved   {msg}"
     cv2.rectangle(v, (0, v.shape[0] - 40), (v.shape[1], v.shape[0]), (0, 0, 0), -1)
     cv2.putText(v, status, (10, v.shape[0] - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
     cv2.putText(v, "SPACE take snapshot | WASD move | n next square | q quit", (10, 25),
