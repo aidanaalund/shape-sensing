@@ -56,6 +56,7 @@ HEADING_LEN = 30    # [px]
 INIT_TURN = 45      # [deg] search cone around INIT_DIR for the first step
 INIT_LOOK = 60      # [px] look-ahead for the first step
 INIT_DIR = 90       # [deg] initial direction, below horizontal in image coords (90 = down)
+SNAP_PX = 30        # [px] the start snaps sideways onto the strongest ridge within this distance of the clamp point
 STOP_FRAC = 0.3     # stop when response < STOP_FRAC * typical response of the fiber
 MAX_GAP = 60        # [px] longest gap (bead, occlusion) bridged by going straight
 FIBER_DIAM_MM = 2.5 # fiber diameter, gives the image scale from the measured width
@@ -143,9 +144,19 @@ def recenter(R, q, theta, half=3):
     return q + o * nrm
 
 
+def snap_start(R, p, init_dir, half=SNAP_PX, depth=12):
+    """Move the clicked clamp point sideways (normal to init_dir) onto the strongest ridge within +-half px.
+    The fiber leaves the clamp above the backdrop edge, so when it bends it crosses the clamp row off the
+    clicked point (by ~15 px at large bends). The ridge is averaged over `depth` px ahead so a speck can't win."""
+    nrm, fwd = unit(init_dir + 90), unit(init_dir)
+    offs = np.arange(-half, half + 1)
+    prof = np.mean([sample(R, p + d * fwd + offs[:, None] * nrm) for d in range(0, depth, 2)], axis=0)
+    return p + offs[int(np.argmax(prof))] * nrm if prof.max() > 0 else p
+
+
 def track(R, inside, clamp, init_dir=INIT_DIR, tip=None):
     Rd = cv2.dilate(R, np.ones((5, 5), np.uint8))
-    p = np.asarray(clamp, float)
+    p = snap_start(R, np.asarray(clamp, float), init_dir)
     theta, _ = best_direction(Rd, p, init_dir, INIT_TURN, INIT_LOOK)
     # the clicked point is only approximate: start on the fiber a few px in, extrapolated back
     q = recenter(R, p + 3 * STEP * unit(theta), theta)
