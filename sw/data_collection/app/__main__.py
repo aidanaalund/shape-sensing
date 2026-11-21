@@ -147,6 +147,48 @@ def main():
     was_collecting = False
 
     out_sensor = out / "sensor_data"
+    # Measurement mode: extra snapshots ("trials") of chosen positions, for repeatability and
+    # drift analysis. Saved under <out>/repeat/ so they never count as, or overwrite, grid data.
+    rep_cv, rep_sensor = out / cam.REPEAT_DIR / "grid_data", out / cam.REPEAT_DIR / "sensor_data"
+    rep_log_f = rep_log = None
+    measuring = False
+    trials = cam.trials_saved(rep_cv, a.prefix)  # {(row, col): set of trial numbers} already on disk
+    counts = np.zeros((a.rows, a.cols), int)
+    for (r, c), ts in trials.items():
+        if r < a.rows and c < a.cols:
+            counts[r, c] = len(ts)
+
+    def snapshot(frames, r, c, trial=None):
+        """Save both camera frames and start the sensor recording for position (r, c).
+        With a `trial` number it's a measurement-mode trial (..._t001) in the repeat folder."""
+        nonlocal rep_log_f, rep_log
+        name = Path(cam.fname(a.prefix, r, c, a.rows, a.cols))
+        if trial is None:
+            img_dir, sensor_dir, lg, lf, cols = out_cv, out_sensor, log, log_f, [r, c]
+        else:
+            if rep_log is None:
+                rep_cv.mkdir(parents=True, exist_ok=True)
+                p = rep_cv / "log.csv"
+                new = not p.exists()
+                rep_log_f = open(p, "a", newline="", encoding="utf8")  # noqa: SIM115
+                rep_log = csv.writer(rep_log_f)
+                if new:
+                    rep_log.writerow(["file", "row", "col", "trial", "timestamp", "cam", "width", "height", "sensor_file"])
+            name = name.with_stem(f"{name.stem}_t{trial:03d}")
+            img_dir, sensor_dir, lg, lf, cols = rep_cv, rep_sensor, rep_log, rep_log_f, [r, c, trial]
+        # The sensor csv shares the image's name, e.g. img_r00_c01_l.png -> img_r00_c01.csv
+        sensor_name = ""
+        if mcu:
+            sensor_name = name.with_suffix(".csv").name
+            mcu.start_snapshot(sensor_dir / sensor_name, a.length)
+        for side, frame, cap in zip(("_l", "_r"), frames, (cap0, cap1)):
+            n = name.with_stem(name.stem + side)
+            cv2.imwrite(str(img_dir / n), frame)
+            lg.writerow([n, *cols, datetime.now().isoformat(timespec="milliseconds"),
+                         cap.idx, frame.shape[1], frame.shape[0], sensor_name])
+        lf.flush()
+        return name
+
     try:
         while True:
             # Frames come from the reader threads, so a dead camera can't block this loop
@@ -165,11 +207,17 @@ def main():
             if was_collecting and not collecting:  # snapshot just finished
                 msg, msg_t = f"snapshot done ({mcu.last_rows} rows) - ready", time.time() + 2  # shown ~4s
             was_collecting = collecting
+            now = time.time()
             if collecting:  # persistent while recording
                 shown = f"RECORDING {mcu.remaining:.1f}s - wait"
             else:
-                shown = msg if time.time() - msg_t < 2 else ""
-            im = cam.draw(combined, done, pos, shown)
+                shown = msg if now - msg_t < 2 else ""
+            banner = ""
+            if measuring:
+                n = counts[pos[0], pos[1]]
+                banner = (f"MEASURE  {n} extra snapshot{'' if n == 1 else 's'} here | SPACE snapshot | WASD move"
+                          f" | m back to grid | q quit")
+            im = cam.draw(combined, done, pos, shown, banner, counts if measuring else None)
             if mcu:
                 cam.draw_photodiodes(im, mcu.latest, time.monotonic() - mcu.latest_t)
             cv2.imshow(win, im)
@@ -179,48 +227,45 @@ def main():
             if k == -1:
                 continue
             ch = chr(k & 0xFF).lower() if k < 256 else ""
+            move = {KEY_LEFT: (0, -1), KEY_RIGHT: (0, 1), KEY_UP: (-1, 0), KEY_DOWN: (1, 0)}.get(k) \
+                or {"a": (0, -1), "d": (0, 1), "w": (-1, 0), "s": (1, 0)}.get(ch)
             if ch == "q" or k == 27:
                 break
             elif ch == " ":
-                if mcu and mcu.collecting:
+                if collecting:
                     continue  # countdown is already on screen
                 if not cams_ok:  # never save half a pair
                     msg, msg_t = "camera disconnected - not saved", time.time()
                     continue
-                name = Path(cam.fname(a.prefix, pos[0], pos[1], a.rows, a.cols))
-                name_l = name.with_stem(name.stem+"_l")
-                name_r = name.with_stem(name.stem+"_r")
-                # The sensor csv shares the image's name, e.g. img_0_1.jpg -> img_0_1.csv
-                sensor_name = ""
-                if mcu:
-                    sensor_name = name.with_suffix(".csv").name
-                    mcu.start_snapshot(out_sensor / sensor_name, a.length)
-                cv2.imwrite(str(out_cv / name_l), frame0)
-                log.writerow([name_l, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
-                              cap0.idx, frame0.shape[1], frame0.shape[0], sensor_name])
-                cv2.imwrite(str(out_cv / name_r), frame1)
-                log.writerow([name_r, pos[0], pos[1], datetime.now().isoformat(timespec="milliseconds"),
-                              cap1.idx, frame1.shape[1], frame1.shape[0], sensor_name])
-                log_f.flush()
+                if measuring:
+                    ts = trials.setdefault(tuple(pos), set())
+                    t = max(ts, default=0) + 1  # never reuse a number, even if a trial file was deleted
+                    name = snapshot((frame0, frame1), *pos, trial=t)
+                    ts.add(t)
+                    counts[pos[0], pos[1]] = len(ts)
+                    print(f"Saved {name.stem}")
+                    msg, msg_t = f"saved {name.stem}", time.time()
+                    continue
+                name = snapshot((frame0, frame1), *pos)
                 done[pos[0], pos[1]] = True
                 print("Saved position")
-                msg, msg_t = f"saved {sensor_name}", time.time()
+                msg, msg_t = f"saved {name.stem}", time.time()
                 nxt = cam.next_empty(done, pos)
                 if nxt is None:
                     print("All positions saved")
                     msg = "All positions saved"
                 else:
                     pos = list(nxt)
+            elif ch == "m":
+                if collecting:
+                    msg, msg_t = "wait for the snapshot to finish", time.time()
+                    continue
+                measuring = not measuring
+                msg, msg_t = ("measurement mode" if measuring else "grid mode"), time.time()
             elif ch == "n":
                 pos = list(cam.next_empty(done, pos) or pos)
-            elif k == KEY_LEFT or ch == "a":
-                pos[1] = max(0, pos[1] - 1)
-            elif k == KEY_RIGHT or ch == "d":
-                pos[1] = min(a.cols - 1, pos[1] + 1)
-            elif k == KEY_UP or ch == "w":
-                pos[0] = max(0, pos[0] - 1)
-            elif k == KEY_DOWN or ch == "s":
-                pos[0] = min(a.rows - 1, pos[0] + 1)
+            elif move:
+                pos = [min(max(pos[0] + move[0], 0), a.rows - 1), min(max(pos[1] + move[1], 0), a.cols - 1)]
             elif (ch == "p" or ch == "o") and mcu:
                 mcu.send_cmd(ch)
             # elif ch == "c":
@@ -234,6 +279,8 @@ def main():
         if mcu:
             mcu.close()
         log_f.close()
+        if rep_log_f:
+            rep_log_f.close()
         dedupe_log(log_path)  # retaken positions leave duplicate rows
         cv2.destroyAllWindows()
     if not done.all():

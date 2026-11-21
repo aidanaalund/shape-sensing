@@ -20,6 +20,7 @@ Examples:
   python grid_capture.py --rows 3 --cols 3 --cam 1 --out data/run2 --prefix pof
 """
 import json
+import re
 import sys
 import threading
 import time
@@ -90,6 +91,7 @@ CONFIG_NAME = "config.json"  # written into every experiment folder
 # Settings restored from an experiment's config when resuming. Devices (cameras, MCU port) are
 # not restored, since they may have changed since the last session.
 RESUME_KEYS = ("rows", "cols", "prefix", "width", "height", "fps", "fourcc", "length")
+REPEAT_DIR = "repeat"  # measurement-mode trials: <out>/repeat/{grid_data,sensor_data}
 
 
 def is_saved(out, prefix, r, c, rows, cols, sensors=False):
@@ -388,6 +390,17 @@ def fname(prefix, r, c, rows, cols):
     return f"{prefix}_r{r:0{max(nr, 2)}d}_c{c:0{max(nc, 2)}d}.png"
 
 
+def trials_saved(img_dir, prefix):
+    """{(row, col): set of trial numbers} of the measurement-mode snapshots in `img_dir`."""
+    pat = re.compile(rf"{re.escape(prefix)}_r(\d+)_c(\d+)_t(\d+)_l\.png")  # e.g. img_r02_c03_t007_l.png
+    found = {}
+    for p in Path(img_dir).glob("*_l.png"):
+        if m := pat.fullmatch(p.name):
+            r, c, t = map(int, m.groups())
+            found.setdefault((r, c), set()).add(t)
+    return found
+
+
 def next_empty(done, pos):
     """Next position after `pos` (row-major, wrapping) that has no image yet, or None."""
     rows, cols = done.shape
@@ -399,8 +412,10 @@ def next_empty(done, pos):
     return None
 
 
-def draw(frame, done, pos, msg):
-    """Preview with a status line and a mini map of the grid (green = saved, red box = current)."""
+def draw(frame, done, pos, msg, banner="", counts=None):
+    """Preview with a status line and a mini map of the grid (green = saved, red box = current).
+    A `banner` (measurement mode) replaces the key help and outlines the preview in orange.
+    `counts` (rows, cols) of extra measurement snapshots replace the saved/unsaved colours in the mini map."""
     v = frame.copy()
     rows, cols = done.shape
     cell = max(8, min(30, 300 // max(rows, cols)))
@@ -427,6 +442,15 @@ def draw(frame, done, pos, msg):
             if 0 <= r < rows:
                 ty = y0 + r * cell + cell // 2 - 1
                 cv2.line(v, (cx - 3, ty), (cx + 3, ty), yellow, 1)
+    if counts is not None:  # orange cells numbered with their count of extra snapshots
+        fs = cell / 40
+        for (r, c), n in np.ndenumerate(counts):
+            if n:
+                p0 = (x0 + c * cell, y0 + r * cell)
+                cv2.rectangle(v, p0, (p0[0] + cell - 2, p0[1] + cell - 2), (0, 140, 255), -1)
+                (tw, th), _ = cv2.getTextSize(str(n), cv2.FONT_HERSHEY_SIMPLEX, fs, 1)
+                org = (p0[0] + (cell - 2 - tw) // 2, p0[1] + (cell - 2 + th) // 2)
+                cv2.putText(v, str(n), org, cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 0), 1, cv2.LINE_AA)
     r, c = pos
     p0 = (x0 + c * cell, y0 + r * cell)
     cv2.rectangle(v, p0, (p0[0] + cell - 2, p0[1] + cell - 2), (0, 0, 255), 2)
@@ -435,8 +459,13 @@ def draw(frame, done, pos, msg):
     status = f"x {x:+d}  y {y:+d}   {done.sum()}/{done.size} saved   {msg}"
     cv2.rectangle(v, (0, v.shape[0] - 40), (v.shape[1], v.shape[0]), (0, 0, 0), -1)
     cv2.putText(v, status, (10, v.shape[0] - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-    cv2.putText(v, "SPACE take snapshot | WASD move | n next square | q quit", (10, 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    if banner:
+        orange = (0, 140, 255)
+        cv2.rectangle(v, (0, 0), (v.shape[1] - 1, v.shape[0] - 41), orange, 6)
+        cv2.putText(v, banner, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, orange, 2)
+    else:
+        cv2.putText(v, "SPACE take snapshot | WASD move | n next square | m measurement mode | q quit", (10, 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     return v
 
 
