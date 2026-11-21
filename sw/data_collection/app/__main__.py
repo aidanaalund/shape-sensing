@@ -170,6 +170,8 @@ def main():
             else:
                 shown = msg if time.time() - msg_t < 2 else ""
             im = cam.draw(combined, done, pos, shown)
+            if mcu:
+                cam.draw_photodiodes(im, mcu.latest, time.monotonic() - mcu.latest_t)
             cv2.imshow(win, im)
             k = cv2.waitKeyEx(15)  # always reached, so q / X work even with a camera down
             if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1: # window closed with X

@@ -26,6 +26,8 @@ class Mcu:
         self._writer = None
         self._deadline = 0.0
         self._rows = 0
+        self.latest = None    # most recent reading as {field: int}, updated even outside snapshots
+        self.latest_t = 0.0   # time.monotonic() when `latest` arrived
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -76,9 +78,16 @@ class Mcu:
             with self._lock:
                 if line.startswith("#"):  # Status/log
                     print(line)
-                elif line and self._writer:  # Data
-                    self._writer.writerow(dict(zip(FIELDNAMES, line.split(','))))
-                    self._rows += 1
+                elif line:  # Data
+                    row = dict(zip(FIELDNAMES, line.split(',')))
+                    try:
+                        self.latest = {k: int(v) for k, v in row.items()}
+                        self.latest_t = time.monotonic()
+                    except ValueError:
+                        pass  # garbled line; still saved below if recording
+                    if self._writer:
+                        self._writer.writerow(row)
+                        self._rows += 1
                 if self._file and time.monotonic() >= self._deadline:
                     self._end_snapshot()
 

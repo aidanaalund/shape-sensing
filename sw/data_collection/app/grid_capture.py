@@ -438,3 +438,43 @@ def draw(frame, done, pos, msg):
     cv2.putText(v, "SPACE take snapshot | WASD move | n next square | q quit", (10, 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     return v
+
+
+# Photodiode k (0 = center, 1-6 around the ring) is the MCU's channel k+1, i.e. column f"i{k+1}_pa"
+PD_FIELDS = [f"i{k + 1}_pa" for k in range(7)]
+
+
+def pd_layout(cx, cy, ring):
+    """Screen positions of photodiodes 0-6: 0 in the middle, 1 at 12 o'clock, the rest every 60 deg clockwise."""
+    pts = [(cx, cy)]
+    for k in range(1, 7):
+        a = np.deg2rad((k - 1) * 60)  # clockwise from 12 o'clock
+        pts.append((round(cx + ring * np.sin(a)), round(cy - ring * np.cos(a))))
+    return pts
+
+
+def draw_photodiodes(v, reading, age, x0=10, y0=40):
+    """Inset showing the latest photodiode currents in their physical layout.
+    Brightness is relative to the brightest diode in the same reading; the number is the current in nA.
+    `age` is seconds since the reading arrived, so a stalled stream is obvious."""
+    w, h, ring, rad = 230, 250, 72, 30
+    sub = v[y0:y0 + h, x0:x0 + w]
+    sub[:] = (sub * 0.35).astype(np.uint8)  # dim the camera behind the panel
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    stale = reading is None or age > 2
+    title = "photodiodes (nA)" if not stale else ("waiting for MCU data" if reading is None else f"NO DATA for {age:.0f}s")
+    cv2.putText(v, title, (x0 + 8, y0 + 20), font, 0.5, (0, 0, 255) if stale else (255, 255, 255), 1, cv2.LINE_AA)
+    vals = [reading.get(f) for f in PD_FIELDS] if reading else [None] * 7
+    top = max((x for x in vals if x is not None), default=0)
+    for k, (px, py) in enumerate(pd_layout(x0 + w // 2, y0 + 30 + (h - 30) // 2, ring)):
+        val = vals[k]
+        b = 0.0 if stale or val is None or top <= 0 else max(0.0, min(1.0, val / top))
+        fill = (int(30 + 10 * b), int(30 + 190 * b), int(30 + 225 * b))  # dark -> amber
+        cv2.circle(v, (px, py), rad, fill, -1, cv2.LINE_AA)
+        cv2.circle(v, (px, py), rad, (0, 0, 255) if val is not None and val <= 0 else (200, 200, 200), 1, cv2.LINE_AA)
+        ink = (0, 0, 0) if b > 0.55 else (255, 255, 255)
+        cv2.putText(v, str(k), (px - 4, py - 9), font, 0.4, ink, 1, cv2.LINE_AA)
+        txt = "--" if val is None else f"{val / 1000:.1f}"
+        (tw, _), _ = cv2.getTextSize(txt, font, 0.42, 1)
+        cv2.putText(v, txt, (px - tw // 2, py + 12), font, 0.42, ink, 1, cv2.LINE_AA)
+    return v
