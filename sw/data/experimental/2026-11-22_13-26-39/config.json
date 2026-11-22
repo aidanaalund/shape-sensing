@@ -1,0 +1,16 @@
+{
+ "rows": 21,
+ "cols": 21,
+ "cam0": 4,
+ "cam1": 6,
+ "out": "../data/experimental",
+ "mcu": "/dev/ttyACM0",
+ "length": 5,
+ "prefix": "img",
+ "width": 1920,
+ "height": 1080,
+ "fps": 30,
+ "fourcc": "MJPG",
+ "cam0_name": "Innomaker-U20CAM-1080p-S1: Inno",
+ "cam1_name": "Innomaker-U20CAM-1080p-S1: Inno"
+}

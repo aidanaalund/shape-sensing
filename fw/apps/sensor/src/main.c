@@ -19,6 +19,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/led_strip.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
@@ -212,12 +213,36 @@ static void handle_cmd(const struct cmd_msg *msg)
 	}
 }
 
+#define NEOPIXEL_BRIGHTNESS 0x40 // 0-255; full white draws ~60 mA
+
+static const struct device *const neopixel = DEVICE_DT_GET(DT_ALIAS(led_strip));
+
+// Turn the single NeoPixel on (white). It holds its color while powered.
+static int neopixel_white(void)
+{
+	struct led_rgb px = {
+		.r = NEOPIXEL_BRIGHTNESS,
+		.g = NEOPIXEL_BRIGHTNESS,
+		.b = NEOPIXEL_BRIGHTNESS,
+	};
+
+	if (!device_is_ready(neopixel)) {
+		return -ENODEV;
+	}
+	return led_strip_update_rgb(neopixel, &px, 1);
+}
+
 int main(void)
 {
 	int err;
 
 	if (!device_is_ready(console_dev)) {
 		return 0;
+	}
+
+	err = neopixel_white();
+	if (err < 0) {
+		printk("# ERROR NeoPixel (%d)\n", err);
 	}
 
 	err = ads1256_init(&adc, ADS_DRATE);

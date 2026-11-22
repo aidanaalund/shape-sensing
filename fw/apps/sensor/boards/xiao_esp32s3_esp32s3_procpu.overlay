@@ -1,8 +1,12 @@
+#include <zephyr/dt-bindings/led/led.h>
+
 /*
  * XIAO ESP32-S3 pin usage (see seeed_xiao_connector.dtsi for D-number to GPIO):
  *
  *   D10 MOSI -> ADS1256 DIN  D4  CS   -> ADS1256 CS
  *   D5  DRDY <- ADS1256 DRDY
+ *
+ *   D0  MOSI (SPI3) -> NeoPixel DIN (single WS2812, via ~330 ohm series resistor)
  *
  * ADS1256 inputs: AIN0 = Vref, AIN1..AIN7 = photodiode amp outputs, AINCOM = GND.
  * Tie ADS1256 RESET and SYNC/PDWN high.
@@ -27,5 +31,48 @@
 		spi-cpha; /* SPI mode 1 */
 		drdy-gpios = <&xiao_d 5 GPIO_ACTIVE_LOW>;
 		vref-mv = <2500>;
+	};
+};
+
+/*
+ * Single NeoPixel on D0 (GPIO1), driven by SPI3 as a bit-stream. Only MOSI is
+ * routed; SPI3 is otherwise unused (the ADS1256 is on SPI2).
+ */
+&pinctrl {
+	spim3_default: spim3_default {
+		group1 {
+			pinmux = <SPIM3_MOSI_GPIO1>;
+			output-low;
+		};
+	};
+};
+
+&spi3 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	pinctrl-0 = <&spim3_default>;
+	pinctrl-names = "default";
+	line-idle-low; /* keep DIN low between frames so the pixel latches */
+
+	neopixel: ws2812@0 {
+		compatible = "worldsemi,ws2812-spi";
+		reg = <0>; /* ignored, required by SPI bindings */
+		spi-max-frequency = <6400000>;
+		chain-length = <1>;
+		spi-cpha;
+		spi-one-frame = <0xf0>;  /* 625 ns high / 625 ns low */
+		spi-zero-frame = <0xc0>; /* 312.5 ns high / 937.5 ns low */
+		/* SK6812 RGBW: 32 bits/pixel, GRBW order. For an RGB-only SK6812, drop WHITE. */
+		color-mapping = <LED_COLOR_ID_GREEN
+				 LED_COLOR_ID_RED
+				 LED_COLOR_ID_BLUE
+				 LED_COLOR_ID_WHITE>;
+	};
+};
+
+/ {
+	aliases {
+		led-strip = &neopixel;
 	};
 };
