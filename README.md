@@ -6,12 +6,12 @@ This repository contains work on our fiber optic shape sensor for 'ECE 382N: Tac
 
 <!-- ![Picture of our sensing testbench](docs/sensor.png) -->
 
-## Repository Structure (TODO)
+## Repository Structure
 
 ### Electrical Schematics and Datasheets (`hw`)
 
 ### Signal Sampling Firmware (`fw`)
 
-### Applications for data collection (`sw`)
+### Data (collection (real/synthetic), processing, and content) (`sw`)
 
 ### Content and Other Materials (`docs`)
