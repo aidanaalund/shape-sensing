@@ -1,0 +1,5 @@
+IMPORTANT: This dataset contains erroneous measurements. 
+    To correct them, replace all entries in `grid_data` and `sensor_data` that have corresponding entries in `repeat`
+    Note that the origin in the file names is the top left but it is the center in our system.
+
+Step size: 2 pegs
