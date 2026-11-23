@@ -1,0 +1,5 @@
+This dataset is incomplete and was done not connected to a laptop battery.
+
+Erroneous Readings:
+- (0,-2) count 5 mistaken for (0,-1) count 10. Real (0,-1) count 10 in the normal measurements
+- ()

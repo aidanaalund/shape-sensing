@@ -189,6 +189,11 @@ def main():
         lf.flush()
         return name
 
+    # The center (0, 0) recording is the straight-fiber baseline for the photodiode inset
+    center_csv = out_sensor / Path(cam.fname(a.prefix, (a.rows - 1) // 2, (a.cols - 1) // 2, a.rows, a.cols)).with_suffix(".csv").name
+    baseline = cam.load_baseline(center_csv)
+    if baseline:
+        print(f"Photodiode baseline from {center_csv.name}")
     try:
         while True:
             # Frames come from the reader threads, so a dead camera can't block this loop
@@ -206,6 +211,7 @@ def main():
             collecting = bool(mcu and mcu.collecting)
             if was_collecting and not collecting:  # snapshot just finished
                 msg, msg_t = f"snapshot done ({mcu.last_rows} rows) - ready", time.time() + 2  # shown ~4s
+                baseline = cam.load_baseline(center_csv) or baseline  # picks up a new or retaken center
             was_collecting = collecting
             now = time.time()
             if collecting:  # persistent while recording
@@ -219,7 +225,7 @@ def main():
                           f" | m back to grid | q quit")
             im = cam.draw(combined, done, pos, shown, banner, counts if measuring else None)
             if mcu:
-                cam.draw_photodiodes(im, mcu.latest, time.monotonic() - mcu.latest_t)
+                cam.draw_photodiodes(im, mcu.latest, time.monotonic() - mcu.latest_t, baseline)
             cv2.imshow(win, im)
             k = cv2.waitKeyEx(15)  # always reached, so q / X work even with a camera down
             if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1: # window closed with X
